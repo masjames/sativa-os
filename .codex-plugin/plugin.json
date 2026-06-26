@@ -1,0 +1,21 @@
+{
+  "name": "appworkz-katalyst-skill",
+  "version": "1.0.0",
+  "description": "AppworkZ Katalyst Builder OS plugin",
+  "author": {
+    "name": "Adit",
+    "email": "hello@appworkz.com"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Katalyst Builder OS",
+    "shortDescription": "Katalyst OS for AppworkZ",
+    "longDescription": "A repo-native AI development operating layer that turns messy software ideas into shippable product work.",
+    "category": "Development",
+    "capabilities": ["Read", "Write"],
+    "defaultPrompt": [
+      "Use Katalyst to run the Sense mode on the current project state.",
+      "Use Katalyst to build the next feature in the backlog."
+    ]
+  }
+}

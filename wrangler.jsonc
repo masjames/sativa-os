@@ -1,0 +1,16 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "sativa-os",
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-06-26",
+  "observability": {
+    "enabled": true
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "sativa-os-db",
+      "database_id": "9ae30b13-1e67-4188-934c-ec9f7943010f"
+    }
+  ]
+}

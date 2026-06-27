@@ -12,5 +12,10 @@
       "database_name": "sativa-os-db",
       "database_id": "9ae30b13-1e67-4188-934c-ec9f7943010f"
     }
-  ]
+  ],
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application"
+  }
 }

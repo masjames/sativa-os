@@ -9,14 +9,25 @@
     "db:migrate:local": "npx -y node@22 ./node_modules/.bin/wrangler d1 migrations apply sativa-os-db --local",
     "db:migrate:remote": "npx -y node@22 ./node_modules/.bin/wrangler d1 migrations apply sativa-os-db --remote",
     "typecheck": "tsc --noEmit",
-    "test": "node --test tests/*.test.mjs"
+    "test": "node --test tests/*.test.mjs",
+    "build": "vite build",
+    "preview": "vite preview --host 0.0.0.0"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20260620.0",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.3",
     "typescript": "^5.9.3",
+    "vite": "^8.1.0",
     "wrangler": "^4.86.0"
   },
   "engines": {
     "node": ">=22.0.0"
+  },
+  "dependencies": {
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "tslib": "^2.8.1"
   }
 }

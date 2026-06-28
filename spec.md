@@ -101,7 +101,7 @@ Cloudflare Worker serves the UI and JSON APIs. Cloudflare D1 stores accounts, bu
 - `GET /api/ledger/accounts`
 - `GET /api/ledger/transactions`
 - `POST /api/ledger/transactions`
-- MCP-only ledger control tools: `edit_transaction`, `reclassify_transaction`, `void_transaction`, `soft_delete_transaction`, `create_transfer`, `create_split`, `attach_receipt`, `add_transaction_note`, `reconcile_account`, `read_audit_log`, account/category/business management tools, exports/imports, bulk cleanup, spending summaries, and recurring expense detection
+- MCP-only ledger control tools expose a 47-tool full unfiltered surface: baseline/director tools; preferred names `edit_transaction`, `soft_delete_transaction`, `create_transfer`, `create_split`, `read_audit_log`; compatibility aliases `update_transaction`, `delete_transaction`, `record_transfer`, `split_transaction`, `get_audit_log`; auditable transaction CRUD/reclassification/void/delete/transfers/splits/notes/receipts/reconciliation; account/category/business management; exports/imports; bulk cleanup; spending summaries; and recurring expense detection
 - `GET /api/ledger/cashflow`
 - `GET /api/ledger/assets`
 - `GET /api/ledger/categories`
@@ -121,7 +121,7 @@ Cloudflare Worker serves the UI and JSON APIs. Cloudflare D1 stores accounts, bu
 - WARAS Rp1,000,000 is not free cash; it is a restricted WARAS asset in Sonny's bank account.
 - WARAS ownership must be visible as Adit 65% / Sonny 35%.
 - Free cash excludes restricted business assets.
-- Every money movement should have account, business, category, cash in/out, and tax/reflection fields. Edits, reclassifications, voids, deletes, transfers, splits, receipt attachments, and reconciliations must write audit entries.
+- Every money movement should have account, business, category, cash in/out, and tax/reflection fields. Edits, reclassifications, voids, deletes, transfers, splits, receipt attachments, reconciliations, bulk updates, account/category/business changes, and imports must write audit entries with metadata where practical.
 - Tax/SPT review should be made easier by categorizing from the beginning.
 - Real private operating data belongs in D1 or private storage, not Git.
 

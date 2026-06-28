@@ -70,7 +70,7 @@ Adit asks, “how much money do I really have and where did it flow?” Sativa O
 
 ## Architecture Summary
 
-Cloudflare Worker serves the UI and JSON APIs. Cloudflare D1 stores accounts, businesses, ledger categories, ledger transactions, reports, reflections, and older generic entries. The ledger tables are the source of truth for money. Pushes to `main` trigger GitHub Actions to typecheck, test, build, apply remote D1 migrations, and deploy the Worker to Cloudflare.
+Cloudflare Worker serves the UI and JSON APIs. Cloudflare D1 stores accounts, businesses, ledger categories, ledger transactions, reports, reflections, and older generic entries. The ledger tables are the source of truth for money. Pushes to `main` trigger GitHub Actions to typecheck, test, and build; when `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` repository secrets are configured, the same workflow applies remote D1 migrations and deploys the Worker to Cloudflare.
 
 ## Data Model Summary
 
@@ -135,7 +135,7 @@ Cloudflare Worker serves the UI and JSON APIs. Cloudflare D1 stores accounts, bu
 - Keep generic entries for non-ledger memory, but make ledger tables the source of truth for cash.
 - Use director control tables for weekly review, OKRs, BMC, and 300T alignment rather than burying management detail in prose.
 - Prefer React/Vite static assets plus browser cache/lazy D1 refresh for UI routes, so page refresh is fast and D1 reads happen through compact JSON data endpoints instead of blocking first paint. Read-only API routes must not run seed/upsert work before returning data.
-- Store editable BMC state in structured `business_model_blocks` for MCP/ChatGPT querying; the heavy tldraw whiteboard experiment is removed from the user flow. BMC and project UI writes create audit/status rows so external MCP changes can be surfaced by lightweight polling. Production deployment is automated through `.github/workflows/deploy.yml` on every push to `main`.
+- Store editable BMC state in structured `business_model_blocks` for MCP/ChatGPT querying; the heavy tldraw whiteboard experiment is removed from the user flow. BMC and project UI writes create audit/status rows so external MCP changes can be surfaced by lightweight polling. Production build automation runs through `.github/workflows/deploy.yml` on every push to `main`; Cloudflare migration/deploy steps run in that workflow once the required repository secrets are configured.
 
 ## Known Constraints
 

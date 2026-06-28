@@ -44,13 +44,13 @@ Adit asks, “how much money do I really have and where did it flow?” Sativa O
 ### Director / High-Level Control
 
 - Director Control page for Sativa 300T alignment, weekly review, business OKRs, and business control.
-- Business Model Canvas is a simple nine-block layout per business with horizontal business tabs, a single edit/save control, local browser cache, and D1 block persistence.
+- Business Model Canvas is a simple nine-block layout per business with a tile-based business home, sticky block title/control row, edit/save/cancel controls, manual in-page refresh, local browser cache, D1 block persistence, latest updated dates, and latest change links.
 - BMC blocks remain available as MCP/queryable memory without a heavy whiteboard dependency.
 - Seeded AppWorkZ Upwork service strategy: AI-assisted 0-to-MVP development, existing app restructure for AI dev, and agentic dev partner service.
 - Zippp and Rileks deployment OKRs are tracked as proof-building steps for AppWorkZ.
-- Projects Horizon tracks active projects grouped under parent businesses, including Coreitera onboarding, AppWorkZ CV/Upwork setup, Rileks MVP, and Zippp deployment.
+- Projects Horizon tracks active projects grouped under parent businesses, including Coreitera onboarding, AppWorkZ CV/Upwork setup, Rileks MVP, and Zippp deployment; the UI temporarily hides Buubo IDs and instead shows play/pause/stop action buttons that log project start, pause, and stop timestamps plus ongoing project counts.
 - Business metrics track shareholding, energy/time allocation, sustainability score, and Sativa 300T vision alignment.
-- Buubo sync architecture is represented with sync status and D1 schema; real two-way sync remains pending Buubo integration credentials/API.
+- Buubo sync architecture is represented with sync status and D1 schema; real two-way sync remains pending Buubo integration credentials/API. UI pages poll compact D1 endpoints and the status bar surfaces recently updated/added/changed records with links back to relevant sections.
 
 ## Non-Goals
 
@@ -70,7 +70,7 @@ Adit asks, “how much money do I really have and where did it flow?” Sativa O
 
 ## Architecture Summary
 
-Cloudflare Worker serves the UI and JSON APIs. Cloudflare D1 stores accounts, businesses, ledger categories, ledger transactions, reports, reflections, and older generic entries. The ledger tables are the source of truth for money.
+Cloudflare Worker serves the UI and JSON APIs. Cloudflare D1 stores accounts, businesses, ledger categories, ledger transactions, reports, reflections, and older generic entries. The ledger tables are the source of truth for money. Pushes to `main` trigger GitHub Actions to typecheck, test, build, apply remote D1 migrations, and deploy the Worker to Cloudflare.
 
 ## Data Model Summary
 
@@ -92,6 +92,8 @@ Cloudflare Worker serves the UI and JSON APIs. Cloudflare D1 stores accounts, bu
 - `GET /api/business-model-data`
 - `GET /api/projects`
 - `POST /api/projects`
+- `POST /api/projects/:projectId/action`
+- `GET /api/status-changes`
 - `GET /api/business-metrics`
 - `GET /api/businesses/:businessId/canvas`
 - `PUT /api/businesses/:businessId/canvas`
@@ -133,7 +135,7 @@ Cloudflare Worker serves the UI and JSON APIs. Cloudflare D1 stores accounts, bu
 - Keep generic entries for non-ledger memory, but make ledger tables the source of truth for cash.
 - Use director control tables for weekly review, OKRs, BMC, and 300T alignment rather than burying management detail in prose.
 - Prefer React/Vite static assets plus browser cache/lazy D1 refresh for UI routes, so page refresh is fast and D1 reads happen through compact JSON data endpoints instead of blocking first paint. Read-only API routes must not run seed/upsert work before returning data.
-- Store editable BMC state in structured `business_model_blocks` for MCP/ChatGPT querying; the heavy tldraw whiteboard experiment is removed from the user flow.
+- Store editable BMC state in structured `business_model_blocks` for MCP/ChatGPT querying; the heavy tldraw whiteboard experiment is removed from the user flow. BMC and project UI writes create audit/status rows so external MCP changes can be surfaced by lightweight polling. Production deployment is automated through `.github/workflows/deploy.yml` on every push to `main`.
 
 ## Known Constraints
 

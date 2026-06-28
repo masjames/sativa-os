@@ -18,7 +18,7 @@ Serve a React/Vite frontend from the Worker, remove the heavy tldraw BMC user fl
 - Ledger tracks salary Rp2,000,000, bank admin Rp25,000, GoPay Rp12,000, WARAS Rp1,000,000 asset, savings Rp0.
 - WARAS is out of Adit free cash and tracked as WARAS asset in Sonny's empty bank account.
 - WARAS ownership is visible as Adit 65%, Sonny 35%.
-- MCP exposes ledger management/read tools.
+- MCP live visibility check currently shows only 16 tools; the next correction is to make the expanded ledger/control-plane tools visible with ChatGPT-facing names.
 - Tests, migration, deployment, and smoke checks pass.
 
 - Director Control tracks Sativa 300T vision, weekly review, OKRs, and business control.
@@ -51,6 +51,6 @@ Serve a React/Vite frontend from the Worker, remove the heavy tldraw BMC user fl
 
 ## Ledger Control Plane Expansion
 
-- MCP must support auditable transaction CRUD, reclassification, void/soft delete, clean two-leg transfers, splits, notes, receipts, account reconciliation, account/category/business management, exports/imports, bulk cleanup, spending summaries, recurring expense detection, and audit-log reads.
+- MCP must support auditable transaction CRUD, reclassification, void/soft delete, clean two-leg transfers, splits, notes, receipts, account reconciliation, account/category/business management, exports/imports, bulk cleanup, spending summaries, recurring expense detection, and audit-log reads. ChatGPT-facing names should include `edit_transaction`, `soft_delete_transaction`, `create_transfer`, `create_split`, and `read_audit_log`; old internal aliases may remain callable but should not be the primary advertised names.
 - Money writes return updated rows plus money situation where relevant.
 - Running balances are derived from non-void, non-deleted ledger rows.

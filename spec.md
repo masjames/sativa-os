@@ -101,7 +101,7 @@ Cloudflare Worker serves the UI and JSON APIs. Cloudflare D1 stores accounts, bu
 - `GET /api/ledger/accounts`
 - `GET /api/ledger/transactions`
 - `POST /api/ledger/transactions`
-- MCP-only ledger control tools: `update_transaction`, `reclassify_transaction`, `void_transaction`, `delete_transaction`, `record_transfer`, `split_transaction`, `add_transaction_note`, `attach_receipt`, `get_transaction`, `reconcile_account`, `create_account`, `update_account`, `archive_account`, `create_category`, `update_category`, `merge_categories`, `create_business`, `update_business`, `get_spending_by_category`, `get_recurring_expenses`, `export_ledger`, `import_transactions`, `bulk_update_transactions`, `bulk_reclassify_by_rule`, `get_audit_log`
+- MCP-only ledger control tools: `edit_transaction`, `reclassify_transaction`, `void_transaction`, `soft_delete_transaction`, `create_transfer`, `create_split`, `attach_receipt`, `add_transaction_note`, `reconcile_account`, `read_audit_log`, account/category/business management tools, exports/imports, bulk cleanup, spending summaries, and recurring expense detection
 - `GET /api/ledger/cashflow`
 - `GET /api/ledger/assets`
 - `GET /api/ledger/categories`

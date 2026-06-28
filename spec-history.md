@@ -38,3 +38,10 @@ Change log of product understanding. Record why important decisions happened.
 
 - Added D1 audit/control-plane schema for transaction metadata, external refs, transfer groups, split parents, receipts, void/deleted state, audit log, transaction notes, and transfer groups.
 - Expanded MCP tools for CRUD, reclassification, void/delete, transfers, splits, notes, receipts, reconciliation, account/category/business management, export/import, bulk cleanup, spending summaries, recurring expense detection, and audit reads.
+
+
+## 2026-06-27 — MCP live tool visibility correction
+
+- Captured the live ChatGPT MCP surface as 16 visible baseline tools.
+- Renamed the primary advertised expanded ledger tools to ChatGPT-facing names: `edit_transaction`, `soft_delete_transaction`, `create_transfer`, `create_split`, and `read_audit_log`.
+- Kept older internal ledger tool aliases callable for compatibility while making the missing tools explicit in repo memory.

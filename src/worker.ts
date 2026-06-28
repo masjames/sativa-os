@@ -1027,12 +1027,12 @@ const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
   { name: 'list_accounts', description: 'List accounts and pockets with balances, spendability, owners, and notes.', method: 'GET', path: '/api/ledger/accounts', inputSchema: emptySchema() },
   { name: 'list_transactions', description: 'List ledger transactions with accounts, businesses, categories, cash in, cash out, and running balances.', method: 'GET', path: '/api/ledger/transactions', inputSchema: emptySchema() },
   { name: 'add_transaction', description: 'Add a ledger transaction for cash in, cash out, investment, transfer, or asset movement.', method: 'POST', path: '/api/ledger/transactions', inputSchema: objectSchema({ transaction_date: stringProp('YYYY-MM-DD transaction date'), account_id: stringProp('Account id, for example bank-main or gopay'), business_id: stringProp('Business id, for example personal-sativa, appworkz, waras, or coreitera'), category_id: stringProp('Ledger category id, for example client-revenue, living-cost, software-tools, uncategorized'), transaction_type: stringProp('income, expense, investment, asset, transfer, opening_balance, or adjustment'), description: stringProp('Human-readable transaction description'), cash_in: numberProp('Cash amount entering this account in IDR'), cash_out: numberProp('Cash amount leaving this account in IDR'), counterparty: stringProp('Optional counterparty'), tax_tag: stringProp('Optional tax tag'), reflection: stringProp('Optional cash reflection') }, ['account_id', 'description']) },
-  { name: 'update_transaction', description: 'Edit an existing transaction with audit trail.', method: 'POST', path: '/mcp', inputSchema: objectSchema({ transaction_id: stringProp('Transaction id'), patch_json: stringProp('JSON object patch'), edit_reason: stringProp('Reason for audit log') }, ['transaction_id', 'patch_json', 'edit_reason']) },
+  { name: 'edit_transaction', description: 'Edit an existing transaction with audit trail.', method: 'POST', path: '/mcp', inputSchema: objectSchema({ transaction_id: stringProp('Transaction id'), patch_json: stringProp('JSON object patch'), edit_reason: stringProp('Reason for audit log') }, ['transaction_id', 'patch_json', 'edit_reason']) },
   { name: 'reclassify_transaction', description: 'Change category, business, counterparty, description, or tax tag without changing amount.', method: 'POST', path: '/mcp', inputSchema: emptySchema() },
   { name: 'void_transaction', description: 'Void a transaction while preserving history and excluding it from balances.', method: 'POST', path: '/mcp', inputSchema: emptySchema() },
-  { name: 'delete_transaction', description: 'Soft-delete a wrong transaction with audit trail.', method: 'POST', path: '/mcp', inputSchema: emptySchema() },
-  { name: 'record_transfer', description: 'Record a two-leg transfer between accounts with optional fee leg.', method: 'POST', path: '/mcp', inputSchema: emptySchema() },
-  { name: 'split_transaction', description: 'Split one transaction into multiple categorized child rows.', method: 'POST', path: '/mcp', inputSchema: emptySchema() },
+  { name: 'soft_delete_transaction', description: 'Soft-delete a wrong transaction with audit trail.', method: 'POST', path: '/mcp', inputSchema: emptySchema() },
+  { name: 'create_transfer', description: 'Record a two-leg transfer between accounts with optional fee leg.', method: 'POST', path: '/mcp', inputSchema: emptySchema() },
+  { name: 'create_split', description: 'Split one transaction into multiple categorized child rows.', method: 'POST', path: '/mcp', inputSchema: emptySchema() },
   { name: 'add_transaction_note', description: 'Attach a clarification, memory, receipt, tax, or decision note to a transaction.', method: 'POST', path: '/mcp', inputSchema: emptySchema() },
   { name: 'attach_receipt', description: 'Attach receipt/image metadata and optional OCR text to a transaction.', method: 'POST', path: '/mcp', inputSchema: emptySchema() },
   { name: 'get_transaction', description: 'Read one transaction with transfer group, splits, notes, audit history, and receipt references.', method: 'GET', path: '/mcp', inputSchema: emptySchema() },
@@ -1057,7 +1057,7 @@ const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
   { name: 'import_transactions', description: 'Import manual JSON transaction rows with dedupe support through external_ref.', method: 'POST', path: '/mcp', inputSchema: emptySchema() },
   { name: 'bulk_update_transactions', description: 'Apply a patch to multiple transactions with audit trail.', method: 'POST', path: '/mcp', inputSchema: emptySchema() },
   { name: 'bulk_reclassify_by_rule', description: 'Classify known merchants by matching counterparty or description.', method: 'POST', path: '/mcp', inputSchema: emptySchema() },
-  { name: 'get_audit_log', description: 'Read audit trail entries.', method: 'GET', path: '/mcp', inputSchema: emptySchema() },
+  { name: 'read_audit_log', description: 'Read audit trail entries.', method: 'GET', path: '/mcp', inputSchema: emptySchema() },
   { name: 'pull_daily_brief', description: 'Pull the daily Sativa OS brief with money warnings and next action.', method: 'GET', path: '/api/daily-brief', inputSchema: emptySchema() },
   { name: 'get_director_summary', description: 'Get director-level summary: money, vision goals, OKRs, weekly reviews, businesses, and BMC blocks.', method: 'GET', path: '/api/director/summary', inputSchema: emptySchema() },
   { name: 'get_weekly_review', description: 'Get weekly review records.', method: 'GET', path: '/api/weekly-review', inputSchema: emptySchema() },
@@ -1121,11 +1121,15 @@ async function callMcpTool(name: string, args: Record<string, unknown>, env: Env
     case 'list_accounts': return { accounts: await accountsWithBalances(env) };
     case 'list_transactions': return listTransactionsReport(env, args);
     case 'add_transaction': await ensureSeededOnce(env); { const transaction = await createTransaction(env, args as NewTransaction); return { transaction, moneySituation: await ledgerSummary(env) }; }
+    case 'edit_transaction':
     case 'update_transaction': return updateTransaction(env, args as PatchPayload);
     case 'reclassify_transaction': return reclassifyTransaction(env, args as PatchPayload);
     case 'void_transaction': return voidTransaction(env, args as PatchPayload);
+    case 'soft_delete_transaction':
     case 'delete_transaction': return deleteTransaction(env, args as PatchPayload);
+    case 'create_transfer':
     case 'record_transfer': return recordTransfer(env, args);
+    case 'create_split':
     case 'split_transaction': return splitTransaction(env, args);
     case 'add_transaction_note': return addTransactionNote(env, args);
     case 'attach_receipt': return attachReceipt(env, args);
@@ -1151,6 +1155,7 @@ async function callMcpTool(name: string, args: Record<string, unknown>, env: Env
     case 'import_transactions': return importTransactions(env, args);
     case 'bulk_update_transactions': return bulkUpdateTransactions(env, args);
     case 'bulk_reclassify_by_rule': return bulkReclassifyByRule(env, args);
+    case 'read_audit_log':
     case 'get_audit_log': return getAuditLog(env, args);
     case 'pull_daily_brief': return dailyBrief(env);
     case 'get_director_summary': return directorSummary(env);

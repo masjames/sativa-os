@@ -19,6 +19,9 @@ type Account = { id: string; name: string; account_type: string; owner: string; 
 type Business = { id: string; name: string; status: string; ownership_json: string; notes: string };
 type BusinessMetric = { business_id: string; shareholding_json: string; energy_hours_per_week: number; sustainability_score: number; vision_alignment_score: number; score_note: string; updated_at: string };
 type Project = { id: string; business_id: string; name: string; status: string; horizon: string; priority: number; outcome: string; next_action: string; source: string; buubo_container_id: string | null; created_at: string; updated_at: string };
+type ProjectAction = { id: string; project_id: string; business_id: string; action: string; happened_at: string; note: string; created_at: string };
+type StatusChange = { id: string; entity_type: string; entity_id: string; action: string; reason: string; created_at: string; metadata_json: string };
+type BusinessChange = { business_id: string; latest_updated_at: string | null; latest_changes: StatusChange[] };
 type BusinessCanvas = { id: string; business_id: string; canvas_type: string; snapshot_json: string; schema_version: string; updated_by: string; created_at: string; updated_at: string };
 type NewProject = Partial<Project>;
 type Category = { id: string; name: string; kind: string; tax_relevant: number; parent_category_id?: string | null; status?: string; notes: string };
@@ -212,8 +215,10 @@ export default {
       if (url.pathname === '/api/mission-control-data') return jsonResponse(await missionControlData(env));
       if (url.pathname === '/api/director-data') return jsonResponse(await directorData(env));
       if (url.pathname === '/api/business-model-data') return jsonResponse(await businessModelData(env));
+      if (url.pathname === '/api/status-changes') return jsonResponse(await statusChanges(env));
       if (url.pathname === '/api/projects' && request.method === 'GET') return jsonResponse({ projects: await projectsWithBusiness(env) });
       if (url.pathname === '/api/projects' && request.method === 'POST') { await ensureSeededOnce(env); return jsonResponse({ project: await createProject(env, await readJson<NewProject>(request)) }, 201); }
+      if (url.pathname.match(/^\/api\/projects\/[^/]+\/action$/) && request.method === 'POST') return jsonResponse(await recordProjectAction(env, decodeURIComponent(url.pathname.split('/')[3]), await readJson<Record<string, unknown>>(request)), 201);
       if (url.pathname === '/api/business-metrics') return jsonResponse({ metrics: await businessMetricsWithBusiness(env) });
       if (url.pathname.match(/^\/api\/businesses\/[^/]+\/canvas$/) && request.method === 'GET') return jsonResponse(await getBusinessCanvas(env, decodeURIComponent(url.pathname.split('/')[3])));
       if (url.pathname.match(/^\/api\/businesses\/[^/]+\/canvas$/) && request.method === 'PUT') { await ensureSeededOnce(env); return jsonResponse(await saveBusinessCanvas(env, decodeURIComponent(url.pathname.split('/')[3]), await readJson<NewBusinessCanvas>(request))); }
@@ -356,8 +361,8 @@ async function directorData(env: Env) {
 }
 
 async function businessModelData(env: Env) {
-  const [businesses, blocks] = await Promise.all([businessesWithReports(env), businessModelWithBusiness(env)]);
-  return { loadedAt: new Date().toISOString(), source: 'Cloudflare D1', businesses, blocks };
+  const [businesses, blocks, changes] = await Promise.all([businessesWithReports(env), businessModelWithBusiness(env), businessModelChanges(env)]);
+  return { loadedAt: new Date().toISOString(), source: 'Cloudflare D1', businesses, blocks, changes };
 }
 
 async function dailyBrief(env: Env) {
@@ -481,12 +486,15 @@ async function upsertBusinessModelBlock(env: Env, payload: NewBusinessModelBlock
   const elements = typeof payload.elements_json === 'string' ? payload.elements_json : JSON.stringify([]);
   const id = `bmc-${businessId}-${blockKey}`;
   const updatedAt = new Date().toISOString();
+  const oldBlock = await env.DB.prepare('SELECT * FROM business_model_blocks WHERE id = ? LIMIT 1').bind(id).first<BusinessModelBlock>();
   await env.DB.prepare(`INSERT INTO business_model_blocks (id, business_id, block_key, block_name, elements_json, status, control_question, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET elements_json = excluded.elements_json, status = excluded.status, control_question = excluded.control_question, updated_at = excluded.updated_at`)
     .bind(id, businessId, blockKey, blockName, elements, payload.status ?? 'active', payload.control_question ?? `What must be true for ${blockName} to compound toward Sativa 300T?`, now, updatedAt)
     .run();
-  return { id, business_id: businessId, block_key: blockKey, block_name: blockName, elements: JSON.parse(elements) };
+  const block = { id, business_id: businessId, block_key: blockKey, block_name: blockName, elements: JSON.parse(elements), updated_at: updatedAt };
+  await audit(env, 'business_model_block', id, oldBlock ? 'update' : 'create', oldBlock ?? {}, block, `${blockName} BMC block saved`, 'sativa-ui', { business_id: businessId, block_key: blockKey, section_url: `/business-model?business=${encodeURIComponent(businessId)}#${encodeURIComponent(blockKey)}` });
+  return block;
 }
 
 async function createTransaction(env: Env, payload: NewTransaction) {
@@ -631,10 +639,32 @@ function truthy(value: unknown) {
 
 
 async function projectsWithBusiness(env: Env) {
-  const result = await env.DB.prepare(`SELECT p.*, b.name AS business_name, b.ownership_json
+  const result = await env.DB.prepare(`SELECT p.*, b.name AS business_name, b.ownership_json,
+      (SELECT action FROM project_action_events e WHERE e.project_id = p.id ORDER BY e.happened_at DESC LIMIT 1) AS last_action,
+      (SELECT happened_at FROM project_action_events e WHERE e.project_id = p.id ORDER BY e.happened_at DESC LIMIT 1) AS last_action_at
     FROM projects p JOIN businesses b ON b.id = p.business_id
     ORDER BY b.name ASC, p.priority ASC, p.name ASC`).all<Project & Record<string, unknown>>();
   return (result.results ?? []).map((row) => ({ ...row, ownership: JSON.parse(String(row.ownership_json || '{}')) }));
+}
+
+async function recordProjectAction(env: Env, projectId: string, payload: Record<string, unknown>) {
+  const action = requireText(payload.action, 'Missing action');
+  if (!['play', 'pause', 'stop'].includes(action)) throw new Error('Invalid project action');
+  const project = await env.DB.prepare('SELECT * FROM projects WHERE id = ? LIMIT 1').bind(projectId).first<Project>();
+  if (!project) throw new Error(`Missing project: ${projectId}`);
+  const happenedAt = new Date().toISOString();
+  const status = action === 'play' ? 'ongoing' : action === 'pause' ? 'paused' : 'stopped';
+  const event: ProjectAction = { id: crypto.randomUUID(), project_id: projectId, business_id: project.business_id, action, happened_at: happenedAt, note: typeof payload.note === 'string' ? payload.note : '', created_at: happenedAt };
+  await env.DB.prepare('INSERT INTO project_action_events (id, project_id, business_id, action, happened_at, note, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+    .bind(event.id, event.project_id, event.business_id, event.action, event.happened_at, event.note, event.created_at).run();
+  await env.DB.prepare('UPDATE projects SET status = ?, updated_at = ? WHERE id = ?').bind(status, happenedAt, projectId).run();
+  await audit(env, 'project', projectId, action, project, { ...project, status, updated_at: happenedAt }, `project ${action}`, 'sativa-ui', { business_id: project.business_id, section_url: `/projects#${encodeURIComponent(projectId)}` });
+  return { event, project: await env.DB.prepare('SELECT * FROM projects WHERE id = ? LIMIT 1').bind(projectId).first<Project>(), ongoingProjectCount: await ongoingProjectCount(env) };
+}
+
+async function ongoingProjectCount(env: Env) {
+  const row = await env.DB.prepare("SELECT COUNT(*) AS count FROM projects WHERE status = 'ongoing'").first<{ count: number }>();
+  return Number(row?.count ?? 0);
 }
 
 async function createProject(env: Env, payload: NewProject) {
@@ -683,6 +713,30 @@ async function saveBusinessCanvas(env: Env, businessId: string, payload: NewBusi
   return getBusinessCanvas(env, businessId);
 }
 
+async function statusChanges(env: Env) {
+  const result = await env.DB.prepare('SELECT * FROM ledger_audit_log ORDER BY created_at DESC LIMIT 12').all<StatusChange>();
+  return { loadedAt: new Date().toISOString(), changes: (result.results ?? []).map(formatChange) };
+}
+
+async function businessModelChanges(env: Env): Promise<BusinessChange[]> {
+  const result = await env.DB.prepare(`SELECT * FROM ledger_audit_log WHERE entity_type = 'business_model_block' ORDER BY created_at DESC LIMIT 50`).all<StatusChange>();
+  const byBusiness: Record<string, BusinessChange> = {};
+  for (const change of result.results ?? []) {
+    const metadata = safeJson(change.metadata_json);
+    const businessId = String(metadata.business_id ?? '');
+    if (!businessId) continue;
+    byBusiness[businessId] ??= { business_id: businessId, latest_updated_at: change.created_at, latest_changes: [] };
+    byBusiness[businessId].latest_updated_at ||= change.created_at;
+    if (byBusiness[businessId].latest_changes.length < 3) byBusiness[businessId].latest_changes.push(formatChange(change));
+  }
+  return Object.values(byBusiness);
+}
+
+function formatChange(change: StatusChange) {
+  const metadata = safeJson(change.metadata_json);
+  return { ...change, metadata, label: `${change.action} ${change.entity_type.replaceAll('_', ' ')}`, sectionUrl: String(metadata.section_url ?? '') };
+}
+
 async function buuboSyncStatus(env: Env) {
   const projects = await projectsWithBusiness(env);
   return {
@@ -704,6 +758,7 @@ async function serveFrontend(request: Request, env: Env) {
   if (url.pathname === '/add-transaction') return htmlResponse(renderAddTransactionShell());
   if (url.pathname === '/director') return htmlResponse(renderDirectorShell());
   if (url.pathname === '/business-model') return htmlResponse(renderBusinessModelShell());
+  if (url.pathname === '/projects') return htmlResponse(renderProjectsShell());
   return jsonResponse({ error: 'Not found' }, 404);
 }
 
@@ -1317,6 +1372,15 @@ function renderDirectorShell() {
     <section><h2>ChatGPT Director Tools</h2><pre id="mcpTools">Loading tools...</pre></section>
     <script>${clientRuntimeScript('director')}</script>`;
   return pageShell('Director Control', body);
+}
+
+function renderProjectsShell() {
+  const body = `
+    <header><div><h1>PROJECTS HORIZON</h1><p>Projects grouped by business with local play/pause/stop logging.</p><nav><a href="/">Mission Control</a><a href="/director">Director</a><a href="/projects">Projects</a><a href="/business-model">Business Model Canvas</a><a href="/add-transaction">Add Transaction</a></nav></div><div class="small">Instant shell<br>Lazy D1 refresh</div></header>
+    <div class="status" id="loadStatus">Status: projects shell rendered instantly. Loading cached projects...</div>
+    <section id="projects"><h2>Projects Horizon</h2><div class="skeleton">Loading projects from browser cache...</div></section>
+    <script>${clientRuntimeScript('mission')}</script>`;
+  return pageShell('Projects Horizon', body);
 }
 
 function renderBusinessModelShell() {

@@ -113,3 +113,10 @@ Context CLI was unavailable in this environment (`context: command not found`), 
 ## 2026-06-27 implementation note
 
 The tldraw documentation was retrieved for the previous experiment, but the BMC user flow was reverted to a lightweight structured nine-block editor after UX/performance feedback. Future BMC work should prefer the structured `business_model_blocks` API unless a whiteboard dependency is explicitly requested again.
+
+## Official Docs Sources Added 2026-06-28
+
+- Cloudflare Workers GitHub Actions CI/CD: https://developers.cloudflare.com/workers/ci-cd/external-cicd/github-actions/
+- GitHub Actions workflow syntax and push branch filters: https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax
+
+Context MCP resources were unavailable in this environment, so official web documentation was used as fallback for deployment automation.

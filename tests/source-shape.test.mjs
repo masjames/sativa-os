@@ -24,9 +24,11 @@ test('worker implements no-auth Streamable HTTP MCP JSON-RPC primitives', () => 
 
 test('migration creates auditable ledger control-plane tables and columns', () => {
   const controlSql = readFileSync(new URL('../migrations/0005_ledger_control_plane.sql', import.meta.url), 'utf8');
+  const auditMetadataSql = readFileSync(new URL('../migrations/0006_audit_metadata.sql', import.meta.url), 'utf8');
   for (const marker of ['metadata_json', 'external_ref', 'transfer_group_id', 'split_parent_id', 'receipt_ref', 'is_void', 'void_reason', 'deleted_at', 'ledger_audit_log', 'transaction_notes', 'transfer_groups']) {
     assert.match(controlSql, new RegExp(marker));
   }
+  assert.match(auditMetadataSql, /metadata_json/);
 });
 
 test('migrations create ledger, director, project, metric, canvas, and sync tables', () => {

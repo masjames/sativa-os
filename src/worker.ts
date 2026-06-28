@@ -612,9 +612,10 @@ async function validateTransactionPayload(env: Env, payload: NewTransaction) {
   if (payload.business_id) await getBusinessById(env, String(payload.business_id));
 }
 
-async function audit(env: Env, entityType: string, entityId: string, action: string, oldValue: unknown, newValue: unknown, reason: string, actor = 'sativa-mcp') {
-  await env.DB.prepare(`INSERT INTO ledger_audit_log (id, entity_type, entity_id, action, old_value_json, new_value_json, reason, actor, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-    .bind(crypto.randomUUID(), entityType, entityId, action, JSON.stringify(oldValue ?? {}), JSON.stringify(newValue ?? {}), reason, actor, new Date().toISOString())
+async function audit(env: Env, entityType: string, entityId: string, action: string, oldValue: unknown, newValue: unknown, reason: string, actor = 'sativa-mcp', metadata: unknown = {}) {
+  const timestamp = new Date().toISOString();
+  await env.DB.prepare(`INSERT INTO ledger_audit_log (id, entity_type, entity_id, action, old_value_json, new_value_json, reason, actor, created_at, metadata_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+    .bind(crypto.randomUUID(), entityType, entityId, action, JSON.stringify(oldValue ?? {}), JSON.stringify(newValue ?? {}), reason, actor, timestamp, JSON.stringify(metadata ?? {}))
     .run();
 }
 
@@ -747,7 +748,7 @@ async function updateTransaction(env: Env, payload: PatchPayload) {
   await env.DB.prepare(`UPDATE ledger_transactions SET transaction_date = ?, account_id = ?, business_id = ?, category_id = ?, transaction_type = ?, description = ?, cash_in = ?, cash_out = ?, counterparty = ?, tax_tag = ?, reflection = ?, metadata_json = ?, updated_at = ? WHERE id = ?`)
     .bind(next.transaction_date, next.account_id, next.business_id, next.category_id, next.transaction_type, next.description, next.cash_in, next.cash_out, next.counterparty, next.tax_tag, next.reflection, next.metadata_json ?? '{}', next.updated_at, id)
     .run();
-  await audit(env, 'transaction', id, 'update', oldRow, next, requireText(payload.edit_reason, 'Missing edit_reason'));
+  await audit(env, 'transaction', id, 'update', oldRow, next, requireText(payload.edit_reason, 'Missing edit_reason'), String(payload.edited_by || payload.actor || 'chatgpt/mcp'), { source_tool: 'edit_transaction', patch });
   return { transaction: await getTransactionById(env, id), moneySituation: await ledgerSummary(env) };
 }
 
@@ -763,7 +764,7 @@ async function voidTransaction(env: Env, payload: PatchPayload) {
   const updatedAt = new Date().toISOString();
   await env.DB.prepare('UPDATE ledger_transactions SET is_void = 1, void_reason = ?, updated_at = ? WHERE id = ?').bind(requireText(payload.void_reason, 'Missing void_reason'), updatedAt, id).run();
   const transaction = await getTransactionById(env, id);
-  await audit(env, 'transaction', id, 'void', oldRow, transaction, String(payload.void_reason));
+  await audit(env, 'transaction', id, 'void', oldRow, transaction, String(payload.void_reason), String(payload.voided_by || payload.actor || 'chatgpt/mcp'), { source_tool: 'void_transaction' });
   return { transaction, moneySituation: await ledgerSummary(env) };
 }
 
@@ -773,7 +774,7 @@ async function deleteTransaction(env: Env, payload: PatchPayload) {
   const deletedAt = new Date().toISOString();
   await env.DB.prepare('UPDATE ledger_transactions SET deleted_at = ?, updated_at = ? WHERE id = ?').bind(deletedAt, deletedAt, id).run();
   const transaction = await getTransactionById(env, id);
-  await audit(env, 'transaction', id, 'soft_delete', oldRow, transaction, requireText(payload.delete_reason, 'Missing delete_reason'));
+  await audit(env, 'transaction', id, 'soft_delete', oldRow, transaction, requireText(payload.delete_reason, 'Missing delete_reason'), String(payload.deleted_by || payload.actor || 'chatgpt/mcp'), { source_tool: 'soft_delete_transaction' });
   return { transaction, moneySituation: await ledgerSummary(env) };
 }
 
@@ -797,28 +798,28 @@ async function recordTransfer(env: Env, payload: Record<string, unknown>) {
     .bind(groupId, date, description, from, to, amount, feeAmount, new Date().toISOString()).run();
   const businessId = typeof payload.business_id === 'string' && payload.business_id ? payload.business_id : 'personal-sativa';
   const reflection = typeof payload.reflection === 'string' ? payload.reflection : '';
-  const out = await createTransaction(env, { transaction_date: date, account_id: from, business_id: businessId, category_id: 'transfer', transaction_type: 'transfer', description: `${description} — source leg`, cash_in: 0, cash_out: amount, counterparty: String(payload.counterparty ?? to), reflection, transfer_group_id: groupId, external_ref: payload.external_ref ? `${payload.external_ref}:source` : undefined, metadata_json: JSON.stringify({ transfer_group_id: groupId, leg: 'source' }) });
-  const inn = await createTransaction(env, { transaction_date: date, account_id: to, business_id: businessId, category_id: 'transfer', transaction_type: 'transfer', description: `${description} — destination leg`, cash_in: amount, cash_out: 0, counterparty: String(payload.counterparty ?? from), reflection, transfer_group_id: groupId, external_ref: payload.external_ref ? `${payload.external_ref}:destination` : undefined, metadata_json: JSON.stringify({ transfer_group_id: groupId, leg: 'destination' }) });
+  const out = await createTransaction(env, { transaction_date: date, account_id: from, business_id: businessId, category_id: String(payload.category_id || 'transfer'), transaction_type: 'transfer', description: `${description} — source leg`, cash_in: 0, cash_out: amount, counterparty: String(payload.counterparty ?? to), reflection, transfer_group_id: groupId, external_ref: payload.external_ref ? `${payload.external_ref}:source` : undefined, metadata_json: JSON.stringify({ transfer_group_id: groupId, leg: 'source' }) });
+  const inn = await createTransaction(env, { transaction_date: date, account_id: to, business_id: businessId, category_id: String(payload.category_id || 'transfer'), transaction_type: 'transfer', description: `${description} — destination leg`, cash_in: amount, cash_out: 0, counterparty: String(payload.counterparty ?? from), reflection, transfer_group_id: groupId, external_ref: payload.external_ref ? `${payload.external_ref}:destination` : undefined, metadata_json: JSON.stringify({ transfer_group_id: groupId, leg: 'destination' }) });
   let fee: Transaction | null = null;
-  if (feeAmount > 0) fee = await createTransaction(env, { transaction_date: date, account_id: String(payload.fee_account_id || from), business_id: businessId, category_id: 'bank-fee', transaction_type: 'expense', description: `${description} — transfer fee`, cash_in: 0, cash_out: feeAmount, counterparty: String(payload.counterparty ?? 'transfer fee'), reflection, transfer_group_id: groupId, external_ref: payload.external_ref ? `${payload.external_ref}:fee` : undefined, metadata_json: JSON.stringify({ transfer_group_id: groupId, leg: 'fee' }) });
-  await audit(env, 'transfer_group', groupId, 'create', {}, { out, inn, fee }, 'record transfer');
+  if (feeAmount > 0) fee = await createTransaction(env, { transaction_date: date, account_id: String(payload.fee_account_id || from), business_id: businessId, category_id: String(payload.fee_category_id || 'bank-fee'), transaction_type: 'expense', description: `${description} — transfer fee`, cash_in: 0, cash_out: feeAmount, counterparty: String(payload.counterparty ?? 'transfer fee'), reflection, transfer_group_id: groupId, external_ref: payload.external_ref ? `${payload.external_ref}:fee` : undefined, metadata_json: JSON.stringify({ transfer_group_id: groupId, leg: 'fee' }) });
+  await audit(env, 'transfer_group', groupId, 'create', {}, { out, inn, fee }, String(payload.creation_reason || payload.edit_reason || 'record transfer'), 'chatgpt/mcp', { source_tool: 'create_transfer', metadata: safeJson(payload.metadata_json) });
   return { transferGroup: { id: groupId, source: out, destination: inn, fee }, accounts: await accountsWithBalances(env), moneySituation: await ledgerSummary(env) };
 }
 
 async function splitTransaction(env: Env, payload: Record<string, unknown>) {
-  const id = requireText(payload.transaction_id, 'Missing transaction_id');
+  const id = requireText(payload.parent_transaction_id ?? payload.transaction_id, 'Missing parent_transaction_id');
   const parent = await getTransactionById(env, id, false);
   const splits = JSON.parse(requireText(payload.splits_json, 'Missing splits_json')) as Array<Record<string, unknown>>;
   const original = Math.max(Number(parent.cash_in), Number(parent.cash_out));
   const total = splits.reduce((sum, split) => sum + toInteger(split.amount), 0);
   if (total !== original) throw new Error(`Split total ${total} must equal original amount ${original}`);
-  await voidTransaction(env, { transaction_id: id, void_reason: 'split into child rows' });
+  await voidTransaction(env, { transaction_id: id, void_reason: requireText(payload.split_reason, 'Missing split_reason') });
   const children: Transaction[] = [];
   for (const split of splits) {
     const amount = toInteger(split.amount);
     children.push(await createTransaction(env, { transaction_date: parent.transaction_date, account_id: parent.account_id, business_id: parent.business_id ?? undefined, category_id: requireText(split.category_id, 'Missing split category_id'), transaction_type: parent.transaction_type, description: requireText(split.description, 'Missing split description'), cash_in: Number(parent.cash_in) > 0 ? amount : 0, cash_out: Number(parent.cash_out) > 0 ? amount : 0, counterparty: parent.counterparty, tax_tag: parent.tax_tag, reflection: parent.reflection, split_parent_id: parent.id, metadata_json: JSON.stringify({ split_parent_id: parent.id }) }));
   }
-  await audit(env, 'transaction', id, 'split', parent, children, 'split transaction');
+  await audit(env, 'transaction', id, 'split', parent, children, requireText(payload.split_reason, 'Missing split_reason'), 'chatgpt/mcp', { source_tool: 'create_split', child_count: children.length });
   return { parent: await getTransactionById(env, id), splits: children, moneySituation: await ledgerSummary(env) };
 }
 
@@ -827,17 +828,17 @@ async function addTransactionNote(env: Env, payload: Record<string, unknown>) {
   await getTransactionById(env, transactionId);
   const note = { id: crypto.randomUUID(), transaction_id: transactionId, note: requireText(payload.note, 'Missing note'), note_type: typeof payload.note_type === 'string' ? payload.note_type : 'note', created_at: new Date().toISOString() };
   await env.DB.prepare('INSERT INTO transaction_notes (id, transaction_id, note, note_type, created_at) VALUES (?, ?, ?, ?, ?)').bind(note.id, note.transaction_id, note.note, note.note_type, note.created_at).run();
-  await audit(env, 'transaction', transactionId, 'add_note', {}, note, note.note_type);
+  await audit(env, 'transaction', transactionId, 'add_note', {}, note, note.note_type, 'chatgpt/mcp', { source_tool: 'add_transaction_note', metadata: safeJson(payload.metadata_json) });
   return { note, transaction: await getTransactionFull(env, transactionId) };
 }
 
 async function attachReceipt(env: Env, payload: Record<string, unknown>) {
   const transactionId = requireText(payload.transaction_id, 'Missing transaction_id');
   const oldRow = await getTransactionById(env, transactionId);
-  const receipt = { file_ref: requireText(payload.file_ref, 'Missing file_ref'), ocr_text: String(payload.ocr_text ?? ''), source: String(payload.source ?? 'manual') };
+  const receipt = { file_ref: requireText(payload.receipt_ref ?? payload.file_ref, 'Missing receipt_ref'), receipt_url: String(payload.receipt_url ?? ''), ocr_text: String(payload.receipt_text ?? payload.ocr_text ?? ''), source: String(payload.source ?? 'manual'), metadata: safeJson(payload.metadata_json) };
   await env.DB.prepare('UPDATE ledger_transactions SET receipt_ref = ?, metadata_json = ?, updated_at = ? WHERE id = ?').bind(receipt.file_ref, JSON.stringify({ ...safeJson(oldRow.metadata_json), receipt }), new Date().toISOString(), transactionId).run();
   const transaction = await getTransactionById(env, transactionId);
-  await audit(env, 'transaction', transactionId, 'attach_receipt', oldRow, transaction, 'attach receipt');
+  await audit(env, 'transaction', transactionId, 'attach_receipt', oldRow, transaction, 'attach receipt', 'chatgpt/mcp', { source_tool: 'attach_receipt', receipt_ref: receipt.file_ref });
   return { receipt, transaction };
 }
 
@@ -859,12 +860,12 @@ async function reconcileAccount(env: Env, payload: Record<string, unknown>) {
   const diff = actual - expected;
   let adjustment: Transaction | null = null;
   if (diff !== 0) adjustment = await createTransaction(env, { transaction_date: String(payload.reconciliation_date || new Date().toISOString().slice(0, 10)), account_id: accountId, business_id: 'personal-sativa', category_id: 'reconciliation', transaction_type: 'adjustment', description: `Reconcile ${before.name} to actual balance`, cash_in: diff > 0 ? diff : 0, cash_out: diff < 0 ? Math.abs(diff) : 0, counterparty: 'reconciliation', reflection: String(payload.reason ?? '') });
-  await audit(env, 'account', accountId, 'reconcile', { expected }, { actual, diff, adjustment }, String(payload.reason ?? 'reconcile account'));
+  await audit(env, 'account', accountId, 'reconcile', { expected }, { actual, diff, adjustment }, String(payload.reason ?? 'reconcile account'), 'chatgpt/mcp', { source_tool: 'reconcile_account' });
   return { account_id: accountId, expected_balance: expected, actual_balance: actual, difference: diff, adjustment, after: (await accountsWithBalances(env)).find((account) => account.id === accountId), moneySituation: await ledgerSummary(env) };
 }
 
 async function createAccount(env: Env, payload: Record<string, unknown>) {
-  const account = { id: requireText(payload.id, 'Missing id'), name: requireText(payload.name, 'Missing name'), account_type: requireText(payload.account_type, 'Missing account_type'), owner: String(payload.owner ?? 'Adit'), currency: String(payload.currency ?? 'IDR'), is_spendable: truthy(payload.is_spendable) ? 1 : 0, is_restricted: truthy(payload.is_restricted) ? 1 : 0, status: 'active', notes: String(payload.notes ?? ''), created_at: new Date().toISOString(), updated_at: new Date().toISOString() };
+  const account = { id: requireText(payload.account_id ?? payload.id, 'Missing account_id'), name: requireText(payload.name, 'Missing name'), account_type: String(payload.account_type ?? 'cash'), owner: String(payload.owner ?? 'Adit'), currency: String(payload.currency ?? 'IDR'), is_spendable: truthy(payload.spendable ?? payload.is_spendable) ? 1 : 0, is_restricted: truthy(payload.is_restricted) ? 1 : 0, status: String(payload.status ?? 'active'), notes: String(payload.notes ?? ''), created_at: new Date().toISOString(), updated_at: new Date().toISOString() };
   await env.DB.prepare('INSERT INTO accounts (id, name, account_type, owner, currency, is_spendable, is_restricted, status, notes, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
     .bind(account.id, account.name, account.account_type, account.owner, account.currency, account.is_spendable, account.is_restricted, account.status, account.notes, account.created_at, account.updated_at).run();
   await audit(env, 'account', account.id, 'create', {}, account, 'create account');
@@ -883,11 +884,11 @@ async function updateAccount(env: Env, payload: PatchPayload) {
 }
 
 async function archiveAccount(env: Env, payload: PatchPayload) {
-  return updateAccount(env, { account_id: payload.account_id, patch_json: { status: 'archived' }, edit_reason: String(payload.reason || 'archive account') });
+  return updateAccount(env, { account_id: payload.account_id, patch_json: { status: 'archived' }, edit_reason: String(payload.archive_reason || payload.reason || 'archive account') });
 }
 
 async function createCategory(env: Env, payload: Record<string, unknown>) {
-  const category = { id: requireText(payload.id, 'Missing id'), name: requireText(payload.name, 'Missing name'), kind: requireText(payload.kind, 'Missing kind'), parent_category_id: typeof payload.parent_category_id === 'string' ? payload.parent_category_id : null, tax_relevant: truthy(payload.tax_relevant) ? 1 : 0, status: 'active', notes: String(payload.notes ?? '') };
+  const category = { id: requireText(payload.category_id ?? payload.id, 'Missing category_id'), name: requireText(payload.name, 'Missing name'), kind: String(payload.kind ?? 'expense'), parent_category_id: typeof payload.parent_category_id === 'string' ? payload.parent_category_id : null, tax_relevant: truthy(payload.tax_relevant) ? 1 : 0, status: 'active', notes: String(payload.notes ?? '') };
   await env.DB.prepare('INSERT INTO ledger_categories (id, name, kind, tax_relevant, notes, parent_category_id, status) VALUES (?, ?, ?, ?, ?, ?, ?)')
     .bind(category.id, category.name, category.kind, category.tax_relevant, category.notes, category.parent_category_id, category.status).run();
   await audit(env, 'category', category.id, 'create', {}, category, 'create category');
@@ -911,13 +912,13 @@ async function mergeCategories(env: Env, payload: Record<string, unknown>) {
   await getCategoryById(env, from); await getCategoryById(env, to);
   const before = await listTransactions(env, { category_id: from, include_voided: true, include_deleted: true });
   await env.DB.prepare('UPDATE ledger_transactions SET category_id = ?, updated_at = ? WHERE category_id = ?').bind(to, new Date().toISOString(), from).run();
-  await updateCategory(env, { category_id: from, patch_json: { status: 'archived' }, edit_reason: String(payload.reason || 'merge categories') });
-  await audit(env, 'category', from, 'merge', { from, count: before.length }, { to }, String(payload.reason || 'merge categories'));
+  await updateCategory(env, { category_id: from, patch_json: { status: 'archived' }, edit_reason: String(payload.merge_reason || payload.reason || 'merge categories') });
+  await audit(env, 'category', from, 'merge', { from, count: before.length }, { to }, String(payload.merge_reason || payload.reason || 'merge categories'));
   return { moved_count: before.length, from_category_id: from, to_category_id: to };
 }
 
 async function createBusiness(env: Env, payload: Record<string, unknown>) {
-  const business = { id: requireText(payload.id, 'Missing id'), name: requireText(payload.name, 'Missing name'), status: 'active', ownership_json: String(payload.ownership_json ?? '{}'), notes: String(payload.notes ?? ''), created_at: new Date().toISOString(), updated_at: new Date().toISOString() };
+  const business = { id: requireText(payload.business_id ?? payload.id, 'Missing business_id'), name: requireText(payload.name, 'Missing name'), status: String(payload.status ?? 'active'), ownership_json: String(payload.ownership_json ?? '{}'), notes: String(payload.notes ?? ''), created_at: new Date().toISOString(), updated_at: new Date().toISOString() };
   await env.DB.prepare('INSERT INTO businesses (id, name, status, ownership_json, notes, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)').bind(business.id, business.name, business.status, business.ownership_json, business.notes, business.created_at, business.updated_at).run();
   await audit(env, 'business', business.id, 'create', {}, business, 'create business');
   return { business, businesses: await businessesWithReports(env) };
@@ -980,22 +981,25 @@ async function exportLedger(env: Env, payload: LedgerFilter) {
 }
 
 async function importTransactions(env: Env, payload: Record<string, unknown>) {
-  const rows = JSON.parse(requireText(payload.rows_json, 'Missing rows_json')) as NewTransaction[];
+  const rows = JSON.parse(requireText(payload.transactions_json ?? payload.rows_json, 'Missing transactions_json')) as NewTransaction[];
+  if (truthy(payload.dry_run ?? true)) return { imported_count: 0, dry_run: true, transactions: rows, moneySituation: await ledgerSummary(env) };
   const created: Transaction[] = [];
   for (const row of rows) created.push(await createTransaction(env, { ...row, metadata_json: JSON.stringify({ ...safeJson(row.metadata_json), import_source: payload.source ?? 'manual' }) }));
-  return { imported_count: created.length, transactions: created, moneySituation: await ledgerSummary(env) };
+  await audit(env, 'ledger_import', crypto.randomUUID(), 'import_transactions', {}, { count: created.length, dedupe_by_external_ref: payload.dedupe_by_external_ref ?? true }, 'import transactions', 'chatgpt/mcp', { source_tool: 'import_transactions' });
+  return { imported_count: created.length, dry_run: false, transactions: created, moneySituation: await ledgerSummary(env) };
 }
 
 async function bulkUpdateTransactions(env: Env, payload: Record<string, unknown>) {
-  const ids = JSON.parse(requireText(payload.transaction_ids, 'Missing transaction_ids')) as string[];
+  const ids = JSON.parse(requireText(payload.transaction_ids_json ?? payload.transaction_ids, 'Missing transaction_ids_json')) as string[];
   const updated = [];
   for (const id of ids) updated.push(await updateTransaction(env, { transaction_id: id, patch_json: payload.patch_json as string | Record<string, unknown> | undefined, edit_reason: String(payload.edit_reason || 'bulk update') }));
+  await audit(env, 'ledger_bulk', crypto.randomUUID(), 'bulk_update_transactions', { transaction_ids: ids }, { updated_count: updated.length, patch: safeJson(payload.patch_json) }, String(payload.edit_reason || 'bulk update'), 'chatgpt/mcp', { source_tool: 'bulk_update_transactions' });
   return { updated_count: updated.length, updated, moneySituation: await ledgerSummary(env) };
 }
 
 async function bulkReclassifyByRule(env: Env, payload: Record<string, unknown>) {
   const match = JSON.parse(requireText(payload.match_json, 'Missing match_json')) as Record<string, unknown>;
-  const classification = JSON.parse(requireText(payload.classification_json, 'Missing classification_json')) as Record<string, unknown>;
+  const classification = JSON.parse(requireText(payload.patch_json ?? payload.classification_json, 'Missing patch_json')) as Record<string, unknown>;
   let rows = await listTransactions(env, {});
   if (match.counterparty_contains) rows = rows.filter((row) => String(row.counterparty ?? '').toLowerCase().includes(String(match.counterparty_contains).toLowerCase()));
   if (match.description_contains) rows = rows.filter((row) => row.description.toLowerCase().includes(String(match.description_contains).toLowerCase()));
@@ -1003,9 +1007,10 @@ async function bulkReclassifyByRule(env: Env, payload: Record<string, unknown>) 
   for (const row of rows) {
     const patch = { ...classification };
     if (typeof patch.description_template === 'string') { patch.description = patch.description_template; delete patch.description_template; }
-    updated.push(await updateTransaction(env, { transaction_id: row.id, patch_json: patch, edit_reason: 'bulk reclassify by rule' }));
+    if (!truthy(payload.dry_run ?? true)) updated.push(await updateTransaction(env, { transaction_id: row.id, patch_json: patch, edit_reason: String(payload.edit_reason || 'bulk reclassify by rule') }));
   }
-  return { matched_count: rows.length, updated_count: updated.length, updated };
+  if (!truthy(payload.dry_run ?? true)) await audit(env, 'ledger_bulk', crypto.randomUUID(), 'bulk_reclassify_by_rule', { match }, { updated_count: updated.length, patch: classification }, String(payload.edit_reason || 'bulk reclassify by rule'), 'chatgpt/mcp', { source_tool: 'bulk_reclassify_by_rule' });
+  return { matched_count: rows.length, updated_count: updated.length, dry_run: truthy(payload.dry_run ?? true), updated, matched: truthy(payload.dry_run ?? true) ? rows : undefined };
 }
 
 async function getAuditLog(env: Env, filters: LedgerFilter) {
@@ -1013,51 +1018,63 @@ async function getAuditLog(env: Env, filters: LedgerFilter) {
   let rows = result.results ?? [];
   if (filters.entity_type) rows = rows.filter((row) => row.entity_type === filters.entity_type);
   if (filters.entity_id) rows = rows.filter((row) => row.entity_id === filters.entity_id);
-  if (filters.date_from) rows = rows.filter((row) => String(row.created_at) >= String(filters.date_from));
-  if (filters.date_to) rows = rows.filter((row) => String(row.created_at) <= String(filters.date_to));
-  return { audit: rows };
+  if (filters.transaction_id) rows = rows.filter((row) => row.entity_type === 'transaction' && row.entity_id === filters.transaction_id);
+  if (filters.since_date || filters.date_from) rows = rows.filter((row) => String(row.created_at) >= String(filters.since_date || filters.date_from));
+  if (filters.until_date || filters.date_to) rows = rows.filter((row) => String(row.created_at) <= String(filters.until_date || filters.date_to));
+  return { audit: rows.slice(0, filters.limit === undefined ? 50 : Math.max(1, toInteger(filters.limit))) };
 }
 
 function safeJson(value: unknown) {
   try { return typeof value === 'string' ? JSON.parse(value) : (value && typeof value === 'object' ? value : {}); } catch { return {}; }
 }
 
+const editTransactionSchema = objectSchema({ transaction_id: stringProp('Transaction id'), patch_json: stringProp('JSON object patch'), edit_reason: stringProp('Reason for audit log'), edited_by: stringProp('Optional actor/source; defaults to chatgpt/mcp') }, ['transaction_id', 'patch_json', 'edit_reason']);
+const deleteTransactionSchema = objectSchema({ transaction_id: stringProp('Transaction id'), delete_reason: stringProp('Reason for audit log'), deleted_by: stringProp('Optional actor/source') }, ['transaction_id', 'delete_reason']);
+const transferSchema = objectSchema({ transaction_date: stringProp('YYYY-MM-DD transfer date; defaults to today'), from_account_id: stringProp('Source account id'), to_account_id: stringProp('Destination account id'), amount: numberProp('Transfer amount in IDR'), description: stringProp('Human-readable transfer description'), business_id: stringProp('Optional business id'), category_id: stringProp('Optional category id; defaults to transfer'), fee_amount: numberProp('Optional fee amount'), fee_account_id: stringProp('Optional fee account id'), fee_category_id: stringProp('Optional fee category id'), external_ref: stringProp('Optional idempotency/reference key'), metadata_json: stringProp('Optional JSON object metadata'), edit_reason: stringProp('Optional edit/audit reason'), creation_reason: stringProp('Optional creation reason') }, ['from_account_id', 'to_account_id', 'amount', 'description']);
+const splitSchema = objectSchema({ parent_transaction_id: stringProp('Parent transaction id'), splits_json: stringProp('JSON array of child split rows'), split_reason: stringProp('Reason for splitting this transaction') }, ['parent_transaction_id', 'splits_json', 'split_reason']);
+const auditLogSchema = objectSchema({ entity_type: stringProp('Optional entity type filter'), entity_id: stringProp('Optional entity id filter'), transaction_id: stringProp('Optional transaction id filter'), limit: numberProp('Optional max rows; defaults to 50'), since_date: stringProp('Optional YYYY-MM-DD or ISO lower bound'), until_date: stringProp('Optional YYYY-MM-DD or ISO upper bound') }, []);
+
 const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
   { name: 'get_money_situation', description: 'Get the current Sativa OS money situation: free cash, restricted assets, savings, total tracked assets, status, and WARAS ownership.', method: 'GET', path: '/api/ledger/summary', inputSchema: emptySchema() },
   { name: 'list_accounts', description: 'List accounts and pockets with balances, spendability, owners, and notes.', method: 'GET', path: '/api/ledger/accounts', inputSchema: emptySchema() },
   { name: 'list_transactions', description: 'List ledger transactions with accounts, businesses, categories, cash in, cash out, and running balances.', method: 'GET', path: '/api/ledger/transactions', inputSchema: emptySchema() },
   { name: 'add_transaction', description: 'Add a ledger transaction for cash in, cash out, investment, transfer, or asset movement.', method: 'POST', path: '/api/ledger/transactions', inputSchema: objectSchema({ transaction_date: stringProp('YYYY-MM-DD transaction date'), account_id: stringProp('Account id, for example bank-main or gopay'), business_id: stringProp('Business id, for example personal-sativa, appworkz, waras, or coreitera'), category_id: stringProp('Ledger category id, for example client-revenue, living-cost, software-tools, uncategorized'), transaction_type: stringProp('income, expense, investment, asset, transfer, opening_balance, or adjustment'), description: stringProp('Human-readable transaction description'), cash_in: numberProp('Cash amount entering this account in IDR'), cash_out: numberProp('Cash amount leaving this account in IDR'), counterparty: stringProp('Optional counterparty'), tax_tag: stringProp('Optional tax tag'), reflection: stringProp('Optional cash reflection') }, ['account_id', 'description']) },
-  { name: 'edit_transaction', description: 'Edit an existing transaction with audit trail.', method: 'POST', path: '/mcp', inputSchema: objectSchema({ transaction_id: stringProp('Transaction id'), patch_json: stringProp('JSON object patch'), edit_reason: stringProp('Reason for audit log') }, ['transaction_id', 'patch_json', 'edit_reason']) },
-  { name: 'reclassify_transaction', description: 'Change category, business, counterparty, description, or tax tag without changing amount.', method: 'POST', path: '/mcp', inputSchema: emptySchema() },
-  { name: 'void_transaction', description: 'Void a transaction while preserving history and excluding it from balances.', method: 'POST', path: '/mcp', inputSchema: emptySchema() },
-  { name: 'soft_delete_transaction', description: 'Soft-delete a wrong transaction with audit trail.', method: 'POST', path: '/mcp', inputSchema: emptySchema() },
-  { name: 'create_transfer', description: 'Record a two-leg transfer between accounts with optional fee leg.', method: 'POST', path: '/mcp', inputSchema: emptySchema() },
-  { name: 'create_split', description: 'Split one transaction into multiple categorized child rows.', method: 'POST', path: '/mcp', inputSchema: emptySchema() },
-  { name: 'add_transaction_note', description: 'Attach a clarification, memory, receipt, tax, or decision note to a transaction.', method: 'POST', path: '/mcp', inputSchema: emptySchema() },
-  { name: 'attach_receipt', description: 'Attach receipt/image metadata and optional OCR text to a transaction.', method: 'POST', path: '/mcp', inputSchema: emptySchema() },
-  { name: 'get_transaction', description: 'Read one transaction with transfer group, splits, notes, audit history, and receipt references.', method: 'GET', path: '/mcp', inputSchema: emptySchema() },
-  { name: 'reconcile_account', description: 'Create an adjustment so Sativa OS matches a real account balance.', method: 'POST', path: '/mcp', inputSchema: emptySchema() },
-  { name: 'create_account', description: 'Create a new account/pocket.', method: 'POST', path: '/mcp', inputSchema: emptySchema() },
-  { name: 'update_account', description: 'Update an account/pocket with audit trail.', method: 'POST', path: '/mcp', inputSchema: emptySchema() },
-  { name: 'archive_account', description: 'Archive an account instead of deleting it.', method: 'POST', path: '/mcp', inputSchema: emptySchema() },
+  { name: 'get_transaction', description: 'Read one transaction with transfer group, splits, notes, audit history, and receipt references.', method: 'GET', path: '/mcp', inputSchema: objectSchema({ transaction_id: stringProp('Transaction id') }, ['transaction_id']) },
+  { name: 'edit_transaction', description: 'Preferred: edit an existing transaction with audit trail.', method: 'POST', path: '/mcp', inputSchema: editTransactionSchema },
+  { name: 'update_transaction', description: 'Compatibility alias for edit_transaction.', method: 'POST', path: '/mcp', inputSchema: editTransactionSchema },
+  { name: 'reclassify_transaction', description: 'Change category, business, counterparty, description, or tax tag without changing amount.', method: 'POST', path: '/mcp', inputSchema: objectSchema({ transaction_id: stringProp('Transaction id'), category_id: stringProp('Optional category id'), business_id: stringProp('Optional business id'), counterparty: stringProp('Optional counterparty'), description: stringProp('Optional description'), tax_tag: stringProp('Optional tax tag'), edit_reason: stringProp('Reason for audit log') }, ['transaction_id', 'edit_reason']) },
+  { name: 'void_transaction', description: 'Void a transaction while preserving history and excluding it from balances.', method: 'POST', path: '/mcp', inputSchema: objectSchema({ transaction_id: stringProp('Transaction id'), void_reason: stringProp('Reason for voiding'), voided_by: stringProp('Optional actor/source') }, ['transaction_id', 'void_reason']) },
+  { name: 'soft_delete_transaction', description: 'Preferred: soft-delete a wrong transaction with audit trail.', method: 'POST', path: '/mcp', inputSchema: deleteTransactionSchema },
+  { name: 'delete_transaction', description: 'Compatibility alias for soft_delete_transaction.', method: 'POST', path: '/mcp', inputSchema: deleteTransactionSchema },
+  { name: 'create_transfer', description: 'Preferred: record a two-leg transfer between accounts with optional fee leg.', method: 'POST', path: '/mcp', inputSchema: transferSchema },
+  { name: 'record_transfer', description: 'Compatibility alias for create_transfer.', method: 'POST', path: '/mcp', inputSchema: transferSchema },
+  { name: 'create_split', description: 'Preferred: split one transaction into multiple categorized child rows.', method: 'POST', path: '/mcp', inputSchema: splitSchema },
+  { name: 'split_transaction', description: 'Compatibility alias for create_split.', method: 'POST', path: '/mcp', inputSchema: splitSchema },
+  { name: 'add_transaction_note', description: 'Attach a clarification, memory, receipt, tax, or decision note to a transaction.', method: 'POST', path: '/mcp', inputSchema: objectSchema({ transaction_id: stringProp('Transaction id'), note_type: enumProp(['clarification','memory','receipt','tax','decision','other'], 'Note type'), note: stringProp('Note text'), metadata_json: stringProp('Optional JSON object metadata') }, ['transaction_id', 'note_type', 'note']) },
+  { name: 'attach_receipt', description: 'Attach receipt/image metadata and optional OCR text to a transaction.', method: 'POST', path: '/mcp', inputSchema: objectSchema({ transaction_id: stringProp('Transaction id'), receipt_ref: stringProp('Receipt reference'), receipt_url: stringProp('Optional receipt URL'), receipt_text: stringProp('Optional receipt OCR/text'), metadata_json: stringProp('Optional JSON object metadata') }, ['transaction_id', 'receipt_ref']) },
+  { name: 'reconcile_account', description: 'Create an adjustment so Sativa OS matches a real account balance.', method: 'POST', path: '/mcp', inputSchema: objectSchema({ account_id: stringProp('Account id'), actual_balance: numberProp('Actual account balance'), reconciliation_date: stringProp('YYYY-MM-DD date; defaults to today'), description: stringProp('Optional adjustment description'), reason: stringProp('Reason for audit log') }, ['account_id', 'actual_balance', 'reason']) },
+  { name: 'read_audit_log', description: 'Preferred: read audit trail entries.', method: 'GET', path: '/mcp', inputSchema: auditLogSchema },
+  { name: 'get_audit_log', description: 'Compatibility alias for read_audit_log.', method: 'GET', path: '/mcp', inputSchema: auditLogSchema },
+  { name: 'bulk_update_transactions', description: 'Apply a patch to multiple transactions with audit trail.', method: 'POST', path: '/mcp', inputSchema: objectSchema({ transaction_ids_json: stringProp('JSON array of transaction IDs'), patch_json: stringProp('JSON object patch'), edit_reason: stringProp('Reason for audit log') }, ['transaction_ids_json', 'patch_json', 'edit_reason']) },
+  { name: 'bulk_reclassify_by_rule', description: 'Classify known merchants by matching counterparty or description.', method: 'POST', path: '/mcp', inputSchema: objectSchema({ match_json: stringProp('JSON object matching rule'), patch_json: stringProp('JSON object classification patch'), edit_reason: stringProp('Reason for audit log'), dry_run: booleanProp('Optional dry run flag; defaults true') }, ['match_json', 'patch_json', 'edit_reason']) },
+  { name: 'create_account', description: 'Create a new account/pocket.', method: 'POST', path: '/mcp', inputSchema: objectSchema({ account_id: stringProp('Account id'), name: stringProp('Account name'), account_type: stringProp('Optional account type'), spendable: booleanProp('Optional spendable flag'), owner: stringProp('Optional owner'), notes: stringProp('Optional notes'), status: stringProp('Optional status; defaults active') }, ['account_id', 'name']) },
+  { name: 'update_account', description: 'Update an account/pocket with audit trail.', method: 'POST', path: '/mcp', inputSchema: objectSchema({ account_id: stringProp('Account id'), patch_json: stringProp('JSON object patch'), edit_reason: stringProp('Reason for audit log') }, ['account_id', 'patch_json', 'edit_reason']) },
+  { name: 'archive_account', description: 'Archive an account instead of deleting it.', method: 'POST', path: '/mcp', inputSchema: objectSchema({ account_id: stringProp('Account id'), archive_reason: stringProp('Archive reason') }, ['account_id', 'archive_reason']) },
   { name: 'get_cashflow', description: 'Get cashflow rows and totals for the current tracked period.', method: 'GET', path: '/api/ledger/cashflow', inputSchema: emptySchema() },
-  { name: 'get_spending_by_category', description: 'Summarize spending by category with percentages and warnings.', method: 'GET', path: '/mcp', inputSchema: emptySchema() },
-  { name: 'get_recurring_expenses', description: 'Detect possible recurring expenses or subscriptions.', method: 'GET', path: '/mcp', inputSchema: emptySchema() },
+  { name: 'get_spending_by_category', description: 'Summarize spending by category with percentages and warnings.', method: 'GET', path: '/mcp', inputSchema: objectSchema({ since_date: stringProp('Optional YYYY-MM-DD lower bound'), until_date: stringProp('Optional YYYY-MM-DD upper bound'), business_id: stringProp('Optional business id'), account_id: stringProp('Optional account id') }, []) },
+  { name: 'get_recurring_expenses', description: 'Detect possible recurring expenses or subscriptions.', method: 'GET', path: '/mcp', inputSchema: objectSchema({ lookback_days: numberProp('Optional lookback days; defaults 90'), min_occurrences: numberProp('Optional minimum occurrences; defaults 2') }, []) },
   { name: 'get_asset_table', description: 'Get the asset table showing spendable cash and restricted/business assets.', method: 'GET', path: '/api/ledger/assets', inputSchema: emptySchema() },
   { name: 'list_categories', description: 'List ledger categories and tax relevance.', method: 'GET', path: '/api/ledger/categories', inputSchema: emptySchema() },
-  { name: 'create_category', description: 'Create a ledger category.', method: 'POST', path: '/mcp', inputSchema: emptySchema() },
-  { name: 'update_category', description: 'Update a ledger category with audit trail.', method: 'POST', path: '/mcp', inputSchema: emptySchema() },
-  { name: 'merge_categories', description: 'Move transactions from one category to another and archive the old category.', method: 'POST', path: '/mcp', inputSchema: emptySchema() },
+  { name: 'create_category', description: 'Create a ledger category.', method: 'POST', path: '/mcp', inputSchema: objectSchema({ category_id: stringProp('Category id'), name: stringProp('Category name'), tax_relevant: booleanProp('Optional tax relevant flag'), status: stringProp('Optional status; defaults active'), notes: stringProp('Optional notes') }, ['category_id', 'name']) },
+  { name: 'update_category', description: 'Update a ledger category with audit trail.', method: 'POST', path: '/mcp', inputSchema: objectSchema({ category_id: stringProp('Category id'), patch_json: stringProp('JSON object patch'), edit_reason: stringProp('Reason for audit log') }, ['category_id', 'patch_json', 'edit_reason']) },
+  { name: 'merge_categories', description: 'Move transactions from one category to another and archive the old category.', method: 'POST', path: '/mcp', inputSchema: objectSchema({ from_category_id: stringProp('Source category id'), to_category_id: stringProp('Destination category id'), merge_reason: stringProp('Merge reason') }, ['from_category_id', 'to_category_id', 'merge_reason']) },
   { name: 'list_businesses', description: 'List business entities and ownership.', method: 'GET', path: '/api/businesses', inputSchema: emptySchema() },
-  { name: 'create_business', description: 'Create a business entity.', method: 'POST', path: '/mcp', inputSchema: emptySchema() },
-  { name: 'update_business', description: 'Update a business entity with audit trail.', method: 'POST', path: '/mcp', inputSchema: emptySchema() },
+  { name: 'create_business', description: 'Create a business entity.', method: 'POST', path: '/mcp', inputSchema: objectSchema({ business_id: stringProp('Business id'), name: stringProp('Business name'), status: stringProp('Optional status'), ownership_json: stringProp('Optional JSON object ownership map'), notes: stringProp('Optional notes') }, ['business_id', 'name']) },
+  { name: 'update_business', description: 'Update a business entity with audit trail.', method: 'POST', path: '/mcp', inputSchema: objectSchema({ business_id: stringProp('Business id'), patch_json: stringProp('JSON object patch'), edit_reason: stringProp('Reason for audit log') }, ['business_id', 'patch_json', 'edit_reason']) },
   { name: 'get_business_accounting', description: 'Get simplified business accounting rows: revenue, expenses, investment/assets, net cash, ownership, and notes.', method: 'GET', path: '/api/businesses', inputSchema: emptySchema() },
   { name: 'get_tax_summary', description: 'Get a simplified tax/SPT preparation summary from tax-relevant ledger rows.', method: 'GET', path: '/api/reports/tax-summary', inputSchema: emptySchema() },
-  { name: 'export_ledger', description: 'Export ledger rows as json, csv, or markdown.', method: 'GET', path: '/mcp', inputSchema: emptySchema() },
-  { name: 'import_transactions', description: 'Import manual JSON transaction rows with dedupe support through external_ref.', method: 'POST', path: '/mcp', inputSchema: emptySchema() },
-  { name: 'bulk_update_transactions', description: 'Apply a patch to multiple transactions with audit trail.', method: 'POST', path: '/mcp', inputSchema: emptySchema() },
-  { name: 'bulk_reclassify_by_rule', description: 'Classify known merchants by matching counterparty or description.', method: 'POST', path: '/mcp', inputSchema: emptySchema() },
-  { name: 'read_audit_log', description: 'Read audit trail entries.', method: 'GET', path: '/mcp', inputSchema: emptySchema() },
+  { name: 'export_ledger', description: 'Export ledger rows as json, csv, or markdown.', method: 'GET', path: '/mcp', inputSchema: objectSchema({ format: enumProp(['json','csv','markdown'], 'Export format'), since_date: stringProp('Optional YYYY-MM-DD lower bound'), until_date: stringProp('Optional YYYY-MM-DD upper bound'), include_voided: booleanProp('Optional include voided rows; defaults false'), include_deleted: booleanProp('Optional include deleted rows; defaults false') }, ['format']) },
+  { name: 'import_transactions', description: 'Import manual JSON transaction rows with dedupe support through external_ref.', method: 'POST', path: '/mcp', inputSchema: objectSchema({ transactions_json: stringProp('JSON array of transaction rows'), dedupe_by_external_ref: booleanProp('Optional dedupe flag; defaults true'), dry_run: booleanProp('Optional dry run flag; defaults true') }, ['transactions_json']) },
   { name: 'pull_daily_brief', description: 'Pull the daily Sativa OS brief with money warnings and next action.', method: 'GET', path: '/api/daily-brief', inputSchema: emptySchema() },
   { name: 'get_director_summary', description: 'Get director-level summary: money, vision goals, OKRs, weekly reviews, businesses, and BMC blocks.', method: 'GET', path: '/api/director/summary', inputSchema: emptySchema() },
   { name: 'get_weekly_review', description: 'Get weekly review records.', method: 'GET', path: '/api/weekly-review', inputSchema: emptySchema() },
@@ -1195,6 +1212,14 @@ function stringProp(description: string) {
 
 function numberProp(description: string) {
   return { type: 'number', description };
+}
+
+function booleanProp(description: string) {
+  return { type: 'boolean', description };
+}
+
+function enumProp(values: string[], description: string) {
+  return { type: 'string', enum: values, description };
 }
 
 

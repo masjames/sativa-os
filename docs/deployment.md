@@ -87,4 +87,15 @@ After the app connects, ask ChatGPT to call `get_money_situation`, `list_account
 
 ## Ledger control MCP tools
 
-The no-auth MCP endpoint should expose the 16 live baseline tools plus expanded ledger control tools beyond add/list: `edit_transaction`, `reclassify_transaction`, `void_transaction`, `soft_delete_transaction`, `create_transfer`, `create_split`, `attach_receipt`, `add_transaction_note`, `reconcile_account`, `read_audit_log`, account/category/business management tools, spending summaries, recurring expense checks, tax/export/import/bulk cleanup, and audit-log reads. Older internal aliases (`update_transaction`, `delete_transaction`, `record_transfer`, `split_transaction`, `get_audit_log`) remain callable for backward compatibility, but the ChatGPT-facing manifest advertises the corrected names. All mutations write to `ledger_audit_log`; voided/deleted rows are excluded from balances by default.
+The no-auth MCP endpoint should expose a 47-tool unfiltered discovery surface: the 16 live baseline tools plus expanded ledger control tools beyond add/list: `edit_transaction`, `reclassify_transaction`, `void_transaction`, `soft_delete_transaction`, `create_transfer`, `create_split`, `attach_receipt`, `add_transaction_note`, `reconcile_account`, `read_audit_log`, account/category/business management tools, spending summaries, recurring expense checks, tax/export/import/bulk cleanup, and audit-log reads. Older internal aliases (`update_transaction`, `delete_transaction`, `record_transfer`, `split_transaction`, `get_audit_log`) remain callable for backward compatibility, but the ChatGPT-facing manifest advertises the corrected names. All mutations write to `ledger_audit_log` including `metadata_json` where practical; voided/deleted rows are excluded from balances by default.
+
+
+## Live MCP manifest verification
+
+After deploying the Worker, verify the live Streamable HTTP MCP discovery response with:
+
+```bash
+node scripts/verify-mcp-manifest.mjs https://sativa-os.praditya-bagus.workers.dev/mcp
+```
+
+Expected result: `Total tool count: 47`, no missing expected tools, no missing/empty schemas for schema-bearing tools, all preferred names (`edit_transaction`, `soft_delete_transaction`, `create_transfer`, `create_split`, `read_audit_log`) present, all compatibility aliases (`update_transaction`, `delete_transaction`, `record_transfer`, `split_transaction`, `get_audit_log`) present, and final `PASS`.

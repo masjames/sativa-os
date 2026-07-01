@@ -1407,13 +1407,45 @@ function pageShell(title: string, body: string) {
 function renderMcpManifestPage(origin: string) {
   const manifest = mcpManifest(origin);
   const toolRows = MCP_TOOL_DEFINITIONS.map((tool) => `<tr><td><code>${escapeHtml(tool.name)}</code></td><td>${escapeHtml(tool.description)}</td><td>${escapeHtml(tool.method)}</td><td><code>${escapeHtml(tool.path)}</code></td></tr>`).join('');
-  const preferred = ['edit_transaction', 'soft_delete_transaction', 'create_transfer', 'create_split', 'read_audit_log'];
+  const readTools = ['get_money_situation', 'list_accounts', 'list_transactions', 'get_weekly_review', 'get_business_model_canvas', 'read_audit_log'];
+  const writeTools = ['add_transaction', 'edit_transaction', 'soft_delete_transaction', 'create_transfer', 'create_split', 'reconcile_account', 'update_business_model_canvas'];
+  const initializeExample = JSON.stringify({ jsonrpc: '2.0', id: 'init-1', method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'chatgpt-custom-app', version: 'test' } } }, null, 2);
+  const toolsListExample = JSON.stringify({ jsonrpc: '2.0', id: 'tools-1', method: 'tools/list', params: {} }, null, 2);
+  const toolCallExample = JSON.stringify({ jsonrpc: '2.0', id: 'money-1', method: 'tools/call', params: { name: 'get_money_situation', arguments: {} } }, null, 2);
   const body = `
-    <header><div><h1>SATIVA OS MCP MANIFEST</h1><p>Human-readable manifest/help page. Use <code>POST /mcp</code> for JSON-RPC MCP calls; use the JSON manifest links below for machine-readable discovery.</p><nav><a href="/">Mission Control</a><a href="/director">Director</a><a href="/projects">Projects</a><a href="/business-model">Business Model Canvas</a><a href="/add-transaction">Add Transaction</a></nav></div><div class="small">${escapeHtml(manifest.transport)}<br>${escapeHtml(manifest.auth)}</div></header>
-    <section><h2>Connection</h2><table><tbody><tr><th>Server URL</th><td><code>${escapeHtml(manifest.serverUrl)}</code></td></tr><tr><th>Authentication</th><td>${escapeHtml(manifest.auth)} during this test slice</td></tr><tr><th>JSON-RPC endpoint</th><td><code>POST ${escapeHtml(manifest.serverUrl)}</code></td></tr><tr><th>JSON manifest</th><td><a href="/mcp/manifest.json">/mcp/manifest.json</a> · <a href="/.well-known/mcp.json">/.well-known/mcp.json</a></td></tr></tbody></table></section>
-    <section><h2>ChatGPT setup</h2><ol><li>Create/connect a custom app with server URL <code>${escapeHtml(manifest.serverUrl)}</code>.</li><li>Use no authentication for this temporary test slice.</li><li>Start with read tools like <code>get_money_situation</code>, <code>list_accounts</code>, <code>get_weekly_review</code>, or <code>get_business_model_canvas</code>.</li><li>Use write tools only when the entry/account/business/category is clear enough to audit later.</li></ol></section>
-    <section><h2>Preferred control tools</h2><p>${preferred.map((tool) => `<code>${escapeHtml(tool)}</code>`).join(' · ')}</p></section>
-    <section><h2>Available tools (${MCP_TOOL_DEFINITIONS.length})</h2><table><thead><tr><th>Name</th><th>Description</th><th>Method</th><th>Path</th></tr></thead><tbody>${toolRows}</tbody></table></section>
+    <article class="docs-page">
+      <header>
+        <div>
+          <p class="eyebrow">AI / MCP documentation</p>
+          <h1>Sativa OS MCP Manifest</h1>
+          <p>This page is documentation for AI clients. It is not the Sativa OS homepage. Human UI navigation is intentionally omitted so agents can read the endpoint contract directly.</p>
+        </div>
+        <div class="small"><strong>${MCP_TOOL_DEFINITIONS.length} tools</strong><br>${escapeHtml(manifest.transport)}<br>${escapeHtml(manifest.auth)}</div>
+      </header>
+
+      <section><h2>Canonical endpoints</h2><table><tbody>
+        <tr><th>JSON-RPC MCP server</th><td><code>POST ${escapeHtml(manifest.serverUrl)}</code></td></tr>
+        <tr><th>Human docs page</th><td><code>GET ${escapeHtml(manifest.serverUrl)}</code></td></tr>
+        <tr><th>Machine JSON manifest</th><td><a href="/mcp/manifest.json"><code>/mcp/manifest.json</code></a> · <a href="/.well-known/mcp.json"><code>/.well-known/mcp.json</code></a></td></tr>
+        <tr><th>Authentication</th><td>No authentication for the current test slice. Add OAuth/PIN before real private production use.</td></tr>
+      </tbody></table></section>
+
+      <section><h2>Instructions for AI agents</h2><ol>
+        <li>Use <code>POST /mcp</code> only for JSON-RPC. Do not scrape the Sativa OS app UI.</li>
+        <li>Start with read-only tools to understand current money, projects, review, and business model state.</li>
+        <li>Before any write, ask for missing account, business, category, amount, date, and audit reason.</li>
+        <li>For balance corrections, prefer <code>reconcile_account</code> so the ledger keeps an auditable adjustment.</li>
+        <li>For transaction fixes, prefer <code>edit_transaction</code> or <code>soft_delete_transaction</code>; avoid destructive deletes.</li>
+      </ol></section>
+
+      <section><h2>JSON-RPC examples</h2><h3>Initialize</h3><pre>${escapeHtml(initializeExample)}</pre><h3>List tools</h3><pre>${escapeHtml(toolsListExample)}</pre><h3>Call a tool</h3><pre>${escapeHtml(toolCallExample)}</pre></section>
+
+      <section><h2>Suggested starting tools</h2><div class="grid"><div><h3>Read first</h3><p>${readTools.map((tool) => `<code>${escapeHtml(tool)}</code>`).join(' · ')}</p></div><div><h3>Write with audit trail</h3><p>${writeTools.map((tool) => `<code>${escapeHtml(tool)}</code>`).join(' · ')}</p></div></div></section>
+
+      <section><h2>All tools</h2><table><thead><tr><th>Name</th><th>Description</th><th>Method</th><th>Path</th></tr></thead><tbody>${toolRows}</tbody></table></section>
+
+      <section><h2>Human app links</h2><p>Only use these when you want the visual Sativa OS app: <a href="/">Mission Control</a> · <a href="/director">Director</a> · <a href="/projects">Projects</a> · <a href="/business-model">Business Model Canvas</a> · <a href="/add-transaction">Add Transaction</a>.</p></section>
+    </article>
   `;
   return pageShell('Sativa OS MCP Manifest', body);
 }

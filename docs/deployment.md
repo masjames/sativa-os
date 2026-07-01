@@ -28,7 +28,7 @@ npm run deploy:preview -- --preview-alias my-branch
 - `GET /projects` — Projects Horizon grouped by parent business with Buubo sync status.
 - `GET /business-model` — static nine-block business canvas with horizontal business tabs and global lock/unlock.
 - `GET /add-transaction` — separate manual cash in/out form.
-- `GET /mcp` — human-readable MCP/tool manifest/help page, hidden from main nav.
+- `GET /mcp` — docs-style AI/MCP manifest/help page with endpoint instructions and JSON-RPC examples, hidden from main nav.
 - `POST /mcp` — no-auth Streamable HTTP JSON-RPC MCP endpoint for ChatGPT custom app testing (`initialize`, `tools/list`, `tools/call`).
 - `GET /api/mission-control-data` — compact Mission Control snapshot for lazy UI hydration/cache refresh.
 - `GET /api/director-data` — compact Director snapshot for lazy UI hydration/cache refresh.

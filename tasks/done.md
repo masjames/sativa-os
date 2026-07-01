@@ -41,3 +41,8 @@ Completed task notes.
 - Removed the MCP Manifest link from visible React and fallback navigation menus.
 - Changed `GET /mcp` from raw JSON into a human-readable manifest/help page with setup notes, JSON manifest links, preferred tools, and a complete tool table.
 - Kept `POST /mcp` as the JSON-RPC endpoint and kept `/.well-known/mcp.json` plus `/mcp/manifest.json` as machine-readable JSON manifests.
+
+## 2026-07-01 — MCP page made AI-docs-first
+
+- Reworked `GET /mcp` into an AI/MCP documentation page instead of an app-like page.
+- Removed app navigation from the `/mcp` header and added canonical endpoints, instructions for AI agents, JSON-RPC examples, recommended read/write tools, and app links only at the bottom.

@@ -20,6 +20,9 @@ test('worker implements no-auth Streamable HTTP MCP JSON-RPC primitives', () => 
   for (const marker of ['handleMcpRequest', 'handleMcpMessage', 'MCP_TOOL_DEFINITIONS', 'inputSchema', 'structuredContent', 'protocolVersion', 'streamable-http-json-rpc']) {
     assert.match(source, new RegExp(marker));
   }
+  for (const marker of ['AI / MCP documentation', 'Instructions for AI agents', 'JSON-RPC examples', 'Canonical endpoints']) {
+    assert.match(source, new RegExp(marker));
+  }
 });
 
 test('migration creates auditable ledger control-plane tables and columns', () => {

@@ -39,7 +39,7 @@ Adit asks, “how much money do I really have and where did it flow?” Sativa O
 - Asset table distinguishing spendable cash from restricted business assets.
 - Business accounting table with simplified revenue, expenses, investment/assets, net cash, and ownership.
 - Tax/SPT preparation summary.
-- MCP/tool endpoints for money situation, accounts, transactions, cashflow, asset table, categories, business accounting, tax summary, director summary, weekly review, OKRs, Sativa 300T vision alignment, and business model canvas control. `/mcp` now supports a no-auth Streamable HTTP JSON-RPC MCP test endpoint with `initialize`, `tools/list`, and `tools/call`.
+- MCP/tool endpoints for money situation, accounts, transactions, cashflow, asset table, categories, business accounting, tax summary, director summary, weekly review, OKRs, Sativa 300T vision alignment, and business model canvas control. `POST /mcp` supports a no-auth Streamable HTTP JSON-RPC MCP test endpoint with `initialize`, `tools/list`, and `tools/call`; `GET /mcp` is a human-readable manifest/help page that is intentionally hidden from the main navigation.
 
 ### Director / High-Level Control
 
@@ -84,7 +84,7 @@ Cloudflare Worker serves the UI and JSON APIs. Cloudflare D1 stores accounts, bu
 ## API Summary
 
 - `GET /health`
-- `GET /mcp`
+- `GET /mcp` (human-readable MCP manifest/help page; hidden from main nav)
 - `GET /.well-known/mcp.json`
 - `GET /mcp/manifest.json`
 - `POST /mcp`

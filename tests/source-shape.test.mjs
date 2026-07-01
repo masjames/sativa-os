@@ -53,12 +53,13 @@ test('seeded cash, projects, and director strategy match current facts', () => {
   }
 });
 
-test('react frontend uses fast static BMC, simple transaction form, MCP nav, and browser cache', () => {
+test('react frontend uses fast static BMC, simple transaction form, hidden MCP nav, and browser cache', () => {
   const source = frontend();
-  for (const marker of ['Business Model Canvas', 'business-tabs', 'bmc-layout', '✎ edit', 'save all', 'simple-form', '+transaction', 'MCP Manifest', 'localStorage']) {
+  for (const marker of ['Business Model Canvas', 'business-tabs', 'bmc-layout', '✎ edit', 'save all', 'simple-form', '+transaction', 'localStorage']) {
     assert.ok(source.includes(marker), `missing ${marker}`);
   }
   assert.doesNotMatch(source, /tldraw|Tldraw|getSnapshot|loadSnapshot/);
+  assert.doesNotMatch(source, /\['\/mcp', 'MCP Manifest'\]/);
 });
 
 test('minimal visual language is still black and white', () => {

@@ -35,3 +35,9 @@ Completed task notes.
 - Non-main workflows now upload Cloudflare Workers preview versions with sanitized branch aliases before production merge.
 - Kept D1 migrations and production deploy restricted to `main`.
 - Documented preview deployment behavior in spec and deployment memory.
+
+## 2026-07-01 — Hidden MCP menu and readable manifest page
+
+- Removed the MCP Manifest link from visible React and fallback navigation menus.
+- Changed `GET /mcp` from raw JSON into a human-readable manifest/help page with setup notes, JSON manifest links, preferred tools, and a complete tool table.
+- Kept `POST /mcp` as the JSON-RPC endpoint and kept `/.well-known/mcp.json` plus `/mcp/manifest.json` as machine-readable JSON manifests.

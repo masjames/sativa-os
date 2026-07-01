@@ -209,7 +209,7 @@ export default {
     try {
       if (url.pathname === '/health') return jsonResponse({ ok: true, service: 'sativa-os', auth: 'disabled-for-test', ledger: 'enabled', app: 'react-fast-bmc' });
       if (url.pathname === '/mcp' && request.method === 'POST') return mcpResponse(await handleMcpRequest(request, env));
-      if (url.pathname === '/mcp') return manifestResponse(mcpManifest(url.origin));
+      if (url.pathname === '/mcp') return htmlResponse(renderMcpManifestPage(url.origin));
       if (url.pathname === '/.well-known/mcp.json' || url.pathname === '/mcp/manifest.json') return manifestResponse(mcpManifest(url.origin));
 
       if (url.pathname === '/api/seed' && request.method === 'POST') { await ensureSeededOnce(env); return jsonResponse({ ok: true, seeded: true }); }
@@ -1403,9 +1403,24 @@ function pageShell(title: string, body: string) {
 <body><main>${body}</main></body></html>`;
 }
 
+
+function renderMcpManifestPage(origin: string) {
+  const manifest = mcpManifest(origin);
+  const toolRows = MCP_TOOL_DEFINITIONS.map((tool) => `<tr><td><code>${escapeHtml(tool.name)}</code></td><td>${escapeHtml(tool.description)}</td><td>${escapeHtml(tool.method)}</td><td><code>${escapeHtml(tool.path)}</code></td></tr>`).join('');
+  const preferred = ['edit_transaction', 'soft_delete_transaction', 'create_transfer', 'create_split', 'read_audit_log'];
+  const body = `
+    <header><div><h1>SATIVA OS MCP MANIFEST</h1><p>Human-readable manifest/help page. Use <code>POST /mcp</code> for JSON-RPC MCP calls; use the JSON manifest links below for machine-readable discovery.</p><nav><a href="/">Mission Control</a><a href="/director">Director</a><a href="/projects">Projects</a><a href="/business-model">Business Model Canvas</a><a href="/add-transaction">Add Transaction</a></nav></div><div class="small">${escapeHtml(manifest.transport)}<br>${escapeHtml(manifest.auth)}</div></header>
+    <section><h2>Connection</h2><table><tbody><tr><th>Server URL</th><td><code>${escapeHtml(manifest.serverUrl)}</code></td></tr><tr><th>Authentication</th><td>${escapeHtml(manifest.auth)} during this test slice</td></tr><tr><th>JSON-RPC endpoint</th><td><code>POST ${escapeHtml(manifest.serverUrl)}</code></td></tr><tr><th>JSON manifest</th><td><a href="/mcp/manifest.json">/mcp/manifest.json</a> · <a href="/.well-known/mcp.json">/.well-known/mcp.json</a></td></tr></tbody></table></section>
+    <section><h2>ChatGPT setup</h2><ol><li>Create/connect a custom app with server URL <code>${escapeHtml(manifest.serverUrl)}</code>.</li><li>Use no authentication for this temporary test slice.</li><li>Start with read tools like <code>get_money_situation</code>, <code>list_accounts</code>, <code>get_weekly_review</code>, or <code>get_business_model_canvas</code>.</li><li>Use write tools only when the entry/account/business/category is clear enough to audit later.</li></ol></section>
+    <section><h2>Preferred control tools</h2><p>${preferred.map((tool) => `<code>${escapeHtml(tool)}</code>`).join(' · ')}</p></section>
+    <section><h2>Available tools (${MCP_TOOL_DEFINITIONS.length})</h2><table><thead><tr><th>Name</th><th>Description</th><th>Method</th><th>Path</th></tr></thead><tbody>${toolRows}</tbody></table></section>
+  `;
+  return pageShell('Sativa OS MCP Manifest', body);
+}
+
 function renderMissionControlShell() {
   const body = `
-    <header><div><h1>SATIVA OS MISSION CONTROL</h1><p>Primary interface: ChatGPT/MCP. This page paints instantly, uses browser cache first, then refreshes from D1 in the background.</p><nav><a href="/">Mission Control</a><a href="/director">Director</a><a href="/business-model">Business Model Canvas</a><a href="/add-transaction">Add Transaction</a><a href="/mcp">MCP Manifest</a></nav></div><div class="small">Instant shell<br>Lazy D1 refresh</div></header>
+    <header><div><h1>SATIVA OS MISSION CONTROL</h1><p>Primary interface: ChatGPT/MCP. This page paints instantly, uses browser cache first, then refreshes from D1 in the background.</p><nav><a href="/">Mission Control</a><a href="/director">Director</a><a href="/business-model">Business Model Canvas</a><a href="/add-transaction">Add Transaction</a></nav></div><div class="small">Instant shell<br>Lazy D1 refresh</div></header>
     <div class="status" id="loadStatus">Status: app shell rendered instantly. Loading cached data...</div>
     <section id="money-flow"><h2>1. Money Flow</h2><div id="moneyContent" class="skeleton">Loading money flow from browser cache, then Cloudflare D1...</div></section>
     <section id="horizon"><h2>2. Horizon of Controls</h2><div id="horizonContent" class="skeleton">Loading director/MCP controls...</div></section>
@@ -1448,7 +1463,7 @@ function renderBusinessModelShell() {
 
 function renderAddTransactionShell() {
   const body = `
-    <header><div><h1>ADD TRANSACTION</h1><p>Simple page for manual cash in / cash out. The main interaction remains ChatGPT/MCP.</p><nav><a href="/">Mission Control</a><a href="/director">Director</a><a href="/business-model">Business Model Canvas</a><a href="/add-transaction">Add Transaction</a><a href="/mcp">MCP Manifest</a></nav></div><div class="small">Fast shell + lazy options</div></header>
+    <header><div><h1>ADD TRANSACTION</h1><p>Simple page for manual cash in / cash out. The main interaction remains ChatGPT/MCP.</p><nav><a href="/">Mission Control</a><a href="/director">Director</a><a href="/business-model">Business Model Canvas</a><a href="/add-transaction">Add Transaction</a></nav></div><div class="small">Fast shell + lazy options</div></header>
     <div class="status" id="status">Status: form shell rendered instantly. Loading account/business/category options from cache...</div>
     <section><form class="form" id="transactionForm"><input name="transaction_date" type="date" required><select name="account_id" id="accountSelect"><option>Loading accounts...</option></select><select name="business_id" id="businessSelect"><option>Loading businesses...</option></select><select name="category_id" id="categorySelect"><option>Loading categories...</option></select><select name="transaction_type"><option value="income">income</option><option value="expense">expense</option><option value="investment">investment</option><option value="asset">asset</option><option value="transfer">transfer</option><option value="opening_balance">opening_balance</option></select><input name="counterparty" placeholder="counterparty"><input name="cash_in" type="number" min="0" step="1" placeholder="cash in"><input name="cash_out" type="number" min="0" step="1" placeholder="cash out"><input name="tax_tag" placeholder="tax tag"><textarea name="description" class="full" placeholder="description" required></textarea><textarea name="reflection" class="full" placeholder="reflection / retrospective"></textarea><button class="full">Save transaction</button></form></section>
     <script>${clientRuntimeScript('transaction')}</script>`;

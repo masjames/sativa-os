@@ -17,7 +17,6 @@ const nav = [
   ['/director', 'Director'],
   ['/projects', 'Projects'],
   ['/business-model', 'Business Model Canvas'],
-  ['/mcp', 'MCP Manifest'],
 ] as const;
 
 const bmcOrder = ['partners', 'activities', 'resources', 'value', 'relationships', 'channels', 'segments', 'costs', 'revenue'];
@@ -87,7 +86,7 @@ function MissionControl() {
     setData(fresh);
     setStatus(`updated ${project.name}`);
   }
-  return <><Status text={status} /><ProjectControlBoard projects={data.projects || []} businesses={data.businesses || []} onUpdate={updateProject} /><MiniBmcTiles businesses={data.businesses} /><section><h2>2. Financial / Money Flow</h2><div className="metrics"><Metric label="Free cash" value={rupiah(s.freeCash)} /><Metric label="Restricted assets" value={rupiah(s.restrictedAssets)} /><Metric label="Savings" value={rupiah(s.savings)} /><Metric label="Total tracked" value={rupiah(s.totalTrackedAssets)} /></div></section><section><h2>3. Horizon of Controls</h2><div className="thirds"><p>Critical control: keep WARAS separate from spendable cash.</p><p>Next cash action: create, collect, sell, deliver, or recover cash.</p><p>MCP Manifest is available in the top menu.</p></div></section><section><h2>4. All Detailed Data</h2><h3>Accounts</h3><AccountBalanceAudit accounts={data.accounts} onChanged={async () => { const fresh = await getJson<MissionData>('/api/mission-control-data'); localStorage.setItem('sativa:mission:react:v2', JSON.stringify(fresh)); setData(fresh); }} /><h3>Cashflow</h3><Table headers={['Date','Account','Business','In','Out','Balance','Notes']} rows={data.cashflow.rows.map((r) => [r.transaction_date, r.account_name, r.business_name, rupiah(r.cash_in), rupiah(r.cash_out), rupiah(r.running_balance), r.description])} /></section></>;
+  return <><Status text={status} /><ProjectControlBoard projects={data.projects || []} businesses={data.businesses || []} onUpdate={updateProject} /><MiniBmcTiles businesses={data.businesses} /><section><h2>2. Financial / Money Flow</h2><div className="metrics"><Metric label="Free cash" value={rupiah(s.freeCash)} /><Metric label="Restricted assets" value={rupiah(s.restrictedAssets)} /><Metric label="Savings" value={rupiah(s.savings)} /><Metric label="Total tracked" value={rupiah(s.totalTrackedAssets)} /></div></section><section><h2>3. Horizon of Controls</h2><div className="thirds"><p>Critical control: keep WARAS separate from spendable cash.</p><p>Next cash action: create, collect, sell, deliver, or recover cash.</p><p>MCP tools stay available at /mcp when needed, but the manifest is hidden from the main menu.</p></div></section><section><h2>4. All Detailed Data</h2><h3>Accounts</h3><AccountBalanceAudit accounts={data.accounts} onChanged={async () => { const fresh = await getJson<MissionData>('/api/mission-control-data'); localStorage.setItem('sativa:mission:react:v2', JSON.stringify(fresh)); setData(fresh); }} /><h3>Cashflow</h3><Table headers={['Date','Account','Business','In','Out','Balance','Notes']} rows={data.cashflow.rows.map((r) => [r.transaction_date, r.account_name, r.business_name, rupiah(r.cash_in), rupiah(r.cash_out), rupiah(r.running_balance), r.description])} /></section></>;
 }
 
 

@@ -218,6 +218,7 @@ export default {
       if (url.pathname === '/api/status-changes') return jsonResponse(await statusChanges(env));
       if (url.pathname === '/api/projects' && request.method === 'GET') return jsonResponse({ projects: await projectsWithBusiness(env) });
       if (url.pathname === '/api/projects' && request.method === 'POST') { await ensureSeededOnce(env); return jsonResponse({ project: await createProject(env, await readJson<NewProject>(request)) }, 201); }
+      if (url.pathname.match(/^\/api\/projects\/[^/]+$/) && request.method === 'POST') return jsonResponse({ project: await updateProject(env, decodeURIComponent(url.pathname.split('/')[3]), await readJson<NewProject>(request)) });
       if (url.pathname.match(/^\/api\/projects\/[^/]+\/action$/) && request.method === 'POST') return jsonResponse(await recordProjectAction(env, decodeURIComponent(url.pathname.split('/')[3]), await readJson<Record<string, unknown>>(request)), 201);
       if (url.pathname === '/api/business-metrics') return jsonResponse({ metrics: await businessMetricsWithBusiness(env) });
       if (url.pathname.match(/^\/api\/businesses\/[^/]+\/canvas$/) && request.method === 'GET') return jsonResponse(await getBusinessCanvas(env, decodeURIComponent(url.pathname.split('/')[3])));
@@ -349,15 +350,15 @@ async function overview(env: Env) {
 }
 
 async function missionControlData(env: Env) {
-  const [summary, accounts, cashflow, assets, businesses, tax] = await Promise.all([
-    ledgerSummary(env), accountsWithBalances(env), cashflowReport(env), assetTable(env), businessesWithReports(env), taxSummary(env),
+  const [summary, accounts, cashflow, assets, businesses, projects, tax] = await Promise.all([
+    ledgerSummary(env), accountsWithBalances(env), cashflowReport(env), assetTable(env), businessesWithReports(env), projectsWithBusiness(env), taxSummary(env),
   ]);
-  return { loadedAt: new Date().toISOString(), source: 'Cloudflare D1', summary, accounts, cashflow, assets: assets.assets, businesses, tax, mcp: mcpManifest('').tools.map((tool) => tool.name) };
+  return { loadedAt: new Date().toISOString(), source: 'Cloudflare D1', summary, accounts, cashflow, assets: assets.assets, businesses, projects, tax, mcp: mcpManifest('').tools.map((tool) => tool.name) };
 }
 
 async function directorData(env: Env) {
-  const director = await directorSummary(env);
-  return { loadedAt: new Date().toISOString(), source: 'Cloudflare D1', ...director, mcp: mcpManifest('').tools.map((tool) => tool.name) };
+  const [director, projects] = await Promise.all([directorSummary(env), projectsWithBusiness(env)]);
+  return { loadedAt: new Date().toISOString(), source: 'Cloudflare D1', ...director, projects, mcp: mcpManifest('').tools.map((tool) => tool.name) };
 }
 
 async function businessModelData(env: Env) {
@@ -647,13 +648,36 @@ async function projectsWithBusiness(env: Env) {
   return (result.results ?? []).map((row) => ({ ...row, ownership: JSON.parse(String(row.ownership_json || '{}')) }));
 }
 
+
+async function updateProject(env: Env, projectId: string, payload: NewProject) {
+  const current = await env.DB.prepare('SELECT * FROM projects WHERE id = ? LIMIT 1').bind(projectId).first<Project>();
+  if (!current) throw new Error(`Missing project: ${projectId}`);
+  const allowedStatus = new Set(['todo', 'doing', 'review', 'backlog', 'done', 'active', 'ongoing', 'paused', 'stopped']);
+  const status = typeof payload.status === 'string' && allowedStatus.has(payload.status) ? normalizeProjectStatus(payload.status) : current.status;
+  const name = typeof payload.name === 'string' && payload.name.trim() ? payload.name.trim() : current.name;
+  const horizon = typeof payload.horizon === 'string' && payload.horizon.trim() ? payload.horizon.trim() : current.horizon;
+  const priority = Number.isFinite(Number(payload.priority)) ? Number(payload.priority) : current.priority;
+  const outcome = typeof payload.outcome === 'string' ? payload.outcome : current.outcome;
+  const nextAction = typeof payload.next_action === 'string' ? payload.next_action : current.next_action;
+  const updatedAt = new Date().toISOString();
+  await env.DB.prepare('UPDATE projects SET name = ?, status = ?, horizon = ?, priority = ?, outcome = ?, next_action = ?, updated_at = ? WHERE id = ?')
+    .bind(name, status, horizon, priority, outcome, nextAction, updatedAt, projectId).run();
+  const updated = await env.DB.prepare('SELECT * FROM projects WHERE id = ? LIMIT 1').bind(projectId).first<Project>();
+  await audit(env, 'project', projectId, 'update', current, updated, `project updated to ${status}`, 'sativa-ui', { business_id: current.business_id, section_url: `/#${encodeURIComponent(projectId)}` });
+  return updated;
+}
+
+function normalizeProjectStatus(status: string) {
+  return ({ active: 'todo', ongoing: 'doing', paused: 'backlog', stopped: 'done' } as Record<string, string>)[status] || status;
+}
+
 async function recordProjectAction(env: Env, projectId: string, payload: Record<string, unknown>) {
   const action = requireText(payload.action, 'Missing action');
-  if (!['play', 'pause', 'stop'].includes(action)) throw new Error('Invalid project action');
+  if (!['play', 'pause', 'stop', 'todo', 'doing', 'review', 'backlog', 'done'].includes(action)) throw new Error('Invalid project action');
   const project = await env.DB.prepare('SELECT * FROM projects WHERE id = ? LIMIT 1').bind(projectId).first<Project>();
   if (!project) throw new Error(`Missing project: ${projectId}`);
   const happenedAt = new Date().toISOString();
-  const status = action === 'play' ? 'ongoing' : action === 'pause' ? 'paused' : 'stopped';
+  const status = ({ play: 'doing', pause: 'backlog', stop: 'done' } as Record<string, string>)[action] || normalizeProjectStatus(action);
   const event: ProjectAction = { id: crypto.randomUUID(), project_id: projectId, business_id: project.business_id, action, happened_at: happenedAt, note: typeof payload.note === 'string' ? payload.note : '', created_at: happenedAt };
   await env.DB.prepare('INSERT INTO project_action_events (id, project_id, business_id, action, happened_at, note, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
     .bind(event.id, event.project_id, event.business_id, event.action, event.happened_at, event.note, event.created_at).run();
@@ -750,8 +774,13 @@ async function buuboSyncStatus(env: Env) {
 async function serveFrontend(request: Request, env: Env) {
   if ('ASSETS' in env && env.ASSETS) {
     const url = new URL(request.url);
-    const assetRequest = new Request(url.pathname.includes('.') ? request : new URL('/', request.url), request);
-    return env.ASSETS.fetch(assetRequest);
+    const isStaticAsset = url.pathname.includes('.');
+    const assetRequest = new Request(isStaticAsset ? request : new URL('/', request.url), request);
+    const response = await env.ASSETS.fetch(assetRequest);
+    if (isStaticAsset) return response;
+    const headers = new Headers(response.headers);
+    headers.set('cache-control', 'no-store, must-revalidate');
+    return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
   }
   const url = new URL(request.url);
   if (url.pathname === '/') return htmlResponse(renderMissionControlShell());

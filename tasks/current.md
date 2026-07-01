@@ -12,7 +12,7 @@ Serve a React/Vite frontend from the Worker, remove the heavy tldraw BMC user fl
 - UI routes render an instant shell first instead of blocking first paint on D1.
 - Browser cache is used first; D1 refresh happens in the background and updates page sections.
 - New compact JSON data endpoints hydrate Mission Control, Director, and BMC.
-- Mission Control is split into Money Flow, Horizon of Controls, and All Detailed Data.
+- Mission Control is split into Project Scope Kanban first, then Financial / Money Flow, Horizon of Controls, and All Detailed Data.
 - Loading status clearly says data loaded from Cloudflare D1 and shows counts.
 - Add Transaction is a separate page for manual cash in/out tracking.
 - Ledger tracks salary Rp2,000,000, bank admin Rp25,000, GoPay Rp12,000, WARAS Rp1,000,000 asset, savings Rp0.
@@ -54,3 +54,8 @@ Serve a React/Vite frontend from the Worker, remove the heavy tldraw BMC user fl
 - MCP must support auditable transaction CRUD, reclassification, void/soft delete, clean two-leg transfers, splits, notes, receipts, account reconciliation, account/category/business management, exports/imports, bulk cleanup, spending summaries, recurring expense detection, and audit-log reads. ChatGPT-facing names should include `edit_transaction`, `soft_delete_transaction`, `create_transfer`, `create_split`, and `read_audit_log`; old internal aliases may remain callable but should not be the primary advertised names.
 - Money writes return updated rows plus money situation where relevant.
 - Running balances are derived from non-void, non-deleted ledger rows.
+
+## Latest Product Correction
+
+- Mission Control now prioritizes project scope before financials: draggable Todo / Doing / Review Kanban, then editable Backlog and Done list views.
+- Director Control should show each project's Kanban state alongside business/vision controls.

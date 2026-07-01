@@ -44,20 +44,15 @@ jobs:
       - name: Build static assets
         run: npm run build
 
-      - name: Check Cloudflare deployment secrets
-        id: cloudflare-secrets
+      - name: Require Cloudflare deployment secrets
         run: |
-          if [ -n "$CLOUDFLARE_API_TOKEN" ] && [ -n "$CLOUDFLARE_ACCOUNT_ID" ]; then
-            echo "configured=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "configured=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::Skipping Cloudflare deploy because CLOUDFLARE_API_TOKEN and/or CLOUDFLARE_ACCOUNT_ID repository secrets are missing. The build still passed."
+          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            echo "::error::Cloudflare deploy is not configured. Add CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID repository secrets so main merges actually deploy."
+            exit 1
           fi
 
       - name: Apply remote D1 migrations
-        if: steps.cloudflare-secrets.outputs.configured == 'true'
         run: npm run db:migrate:remote
 
       - name: Deploy Cloudflare Worker
-        if: steps.cloudflare-secrets.outputs.configured == 'true'
         run: npm run deploy

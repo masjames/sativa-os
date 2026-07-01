@@ -3,6 +3,9 @@ name: Build and deploy Sativa OS
 on:
   push:
     branches:
+      - '**'
+  pull_request:
+    branches:
       - main
   workflow_dispatch:
 
@@ -10,12 +13,12 @@ permissions:
   contents: read
 
 concurrency:
-  group: sativa-os-production
+  group: sativa-os-${{ github.event_name == 'pull_request' && github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 jobs:
   build-and-deploy:
-    name: Build, migrate, and deploy Worker
+    name: Build, preview, and deploy Worker
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -47,12 +50,31 @@ jobs:
       - name: Require Cloudflare deployment secrets
         run: |
           if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
-            echo "::error::Cloudflare deploy is not configured. Add CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID repository secrets so main merges actually deploy."
+            echo "::error::Cloudflare deploy is not configured. Add CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID repository secrets so branch previews and main deploys can run."
             exit 1
           fi
 
+      - name: Compute preview alias
+        id: preview
+        if: github.ref != 'refs/heads/main'
+        shell: bash
+        run: |
+          raw="${GITHUB_HEAD_REF:-${GITHUB_REF_NAME}}"
+          alias="$(printf '%s' "$raw" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9-]+/-/g; s/^-+//; s/-+$//; s/-+/-/g' | cut -c1-44)"
+          if [ -z "$alias" ] || ! printf '%s' "$alias" | grep -Eq '^[a-z]'; then
+            alias="branch-${alias:-preview}"
+          fi
+          echo "alias=$alias" >> "$GITHUB_OUTPUT"
+          echo "Preview alias: $alias"
+
+      - name: Upload branch preview Worker version
+        if: github.ref != 'refs/heads/main'
+        run: npm run deploy:preview -- --preview-alias "${{ steps.preview.outputs.alias }}"
+
       - name: Apply remote D1 migrations
+        if: github.ref == 'refs/heads/main'
         run: npm run db:migrate:remote
 
-      - name: Deploy Cloudflare Worker
+      - name: Deploy Cloudflare Worker to production
+        if: github.ref == 'refs/heads/main'
         run: npm run deploy

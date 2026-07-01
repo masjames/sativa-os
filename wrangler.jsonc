@@ -3,6 +3,7 @@
   "name": "sativa-os",
   "main": "src/worker.ts",
   "compatibility_date": "2026-06-26",
+  "preview_urls": true,
   "observability": {
     "enabled": true
   },

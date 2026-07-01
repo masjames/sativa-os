@@ -20,6 +20,9 @@ test('worker implements no-auth Streamable HTTP MCP JSON-RPC primitives', () => 
   for (const marker of ['handleMcpRequest', 'handleMcpMessage', 'MCP_TOOL_DEFINITIONS', 'inputSchema', 'structuredContent', 'protocolVersion', 'streamable-http-json-rpc']) {
     assert.match(source, new RegExp(marker));
   }
+  for (const marker of ['AI / MCP documentation', 'Instructions for AI agents', 'JSON-RPC examples', 'Canonical endpoints']) {
+    assert.match(source, new RegExp(marker));
+  }
 });
 
 test('migration creates auditable ledger control-plane tables and columns', () => {
@@ -53,12 +56,13 @@ test('seeded cash, projects, and director strategy match current facts', () => {
   }
 });
 
-test('react frontend uses fast static BMC, simple transaction form, MCP nav, and browser cache', () => {
+test('react frontend uses fast static BMC, simple transaction form, hidden MCP nav, and browser cache', () => {
   const source = frontend();
-  for (const marker of ['Business Model Canvas', 'business-tabs', 'bmc-layout', '✎ edit', 'save all', 'simple-form', '+transaction', 'MCP Manifest', 'localStorage']) {
+  for (const marker of ['Business Model Canvas', 'business-tabs', 'bmc-layout', '✎ edit', 'save all', 'simple-form', '+transaction', 'localStorage']) {
     assert.ok(source.includes(marker), `missing ${marker}`);
   }
   assert.doesNotMatch(source, /tldraw|Tldraw|getSnapshot|loadSnapshot/);
+  assert.doesNotMatch(source, /\['\/mcp', 'MCP Manifest'\]/);
 });
 
 test('minimal visual language is still black and white', () => {

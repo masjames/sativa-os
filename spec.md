@@ -34,21 +34,21 @@ Adit asks, “how much money do I really have and where did it flow?” Sativa O
 - Mission Control, Director Control, Projects, Add Transaction, and Business Model Canvas are served by a React/Vite frontend with browser cache-first hydration from Cloudflare D1 JSON endpoints.
 - Mission Control is divided into Project Scope Kanban, Financial / Money Flow, Horizon of Controls, and All Detailed Data.
 - Visible database loading status shows Cloudflare D1 load time and counts for accounts, transactions, and businesses.
-- Accounts/pockets table: bank, GoPay, Sonny WARAS account, savings.
+- Accounts/pockets table: bank, GoPay, Sonny WARAS account, savings, with manual actual-balance audit controls that create reconciliation entries before later spending categorization cleanup.
 - Cashflow ledger with cash in, cash out, and running balance.
 - Asset table distinguishing spendable cash from restricted business assets.
 - Business accounting table with simplified revenue, expenses, investment/assets, net cash, and ownership.
 - Tax/SPT preparation summary.
-- MCP/tool endpoints for money situation, accounts, transactions, cashflow, asset table, categories, business accounting, tax summary, director summary, weekly review, OKRs, Sativa 300T vision alignment, and business model canvas control. `/mcp` now supports a no-auth Streamable HTTP JSON-RPC MCP test endpoint with `initialize`, `tools/list`, and `tools/call`.
+- MCP/tool endpoints for money situation, accounts, transactions, cashflow, asset table, categories, business accounting, tax summary, director summary, weekly review, OKRs, Sativa 300T vision alignment, and business model canvas control. `POST /mcp` supports a no-auth Streamable HTTP JSON-RPC MCP test endpoint with `initialize`, `tools/list`, and `tools/call`; `GET /mcp` is a docs-style AI/MCP manifest page with endpoint instructions and JSON-RPC examples, intentionally hidden from the main navigation.
 
 ### Director / High-Level Control
 
 - Director Control page for Sativa 300T alignment, weekly review, business OKRs, and business control.
-- Business Model Canvas is a simple nine-block layout per business with a tile-based business home, sticky block title/control row, edit/save/cancel controls, manual in-page refresh, local browser cache, D1 block persistence, latest updated dates, and latest change links.
+- Business Model Canvas is a simple nine-block layout per business with complete fallback blocks for every business, a tile-based business home, sticky block title/control row, edit/save/cancel controls, manual in-page refresh, local browser cache, D1 block persistence, latest updated dates, and latest change links.
 - BMC blocks remain available as MCP/queryable memory without a heavy whiteboard dependency.
 - Seeded AppWorkZ Upwork service strategy: AI-assisted 0-to-MVP development, existing app restructure for AI dev, and agentic dev partner service.
 - Zippp and Rileks deployment OKRs are tracked as proof-building steps for AppWorkZ.
-- Project scope appears first in Mission Control as a Trello-like draggable Kanban board limited to Todo, Doing, and Review, with editable Backlog and Done list views below it. Projects remain tied to parent businesses and project outcomes/next actions, and the Director view shows each project's current Kanban state.
+- Project scope appears first in Mission Control as a Trello-like draggable Kanban board limited to Todo, Doing, and Review, with Backlog and Done rendered as separate editable columns. Project cards only expose task name, associated business/project, and status for editing; new cards are added into Backlog first. Projects remain tied to parent businesses and project outcomes/next actions, and the Director view shows each project's current Kanban state.
 - Business metrics track shareholding, energy/time allocation, sustainability score, and Sativa 300T vision alignment.
 - Buubo sync architecture is represented with sync status and D1 schema; real two-way sync remains pending Buubo integration credentials/API. UI pages poll compact D1 endpoints and the status bar surfaces recently updated/added/changed records with links back to relevant sections.
 
@@ -70,7 +70,7 @@ Adit asks, “how much money do I really have and where did it flow?” Sativa O
 
 ## Architecture Summary
 
-Cloudflare Worker serves the UI and JSON APIs. Cloudflare D1 stores accounts, businesses, ledger categories, ledger transactions, reports, reflections, and older generic entries. The ledger tables are the source of truth for money. Pushes to `main` trigger GitHub Actions to typecheck, test, and build; when `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` repository secrets are configured, the same workflow applies remote D1 migrations and deploys the Worker to Cloudflare.
+Cloudflare Worker serves the UI and JSON APIs. Cloudflare D1 stores accounts, businesses, ledger categories, ledger transactions, reports, reflections, and older generic entries. The ledger tables are the source of truth for money. Pushes and PRs trigger GitHub Actions to typecheck, test, and build. Non-main branches upload a Cloudflare Workers preview version with a sanitized branch alias so changes can be inspected before merge. Pushes to `main` apply remote D1 migrations and deploy the Worker to production when `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` repository secrets are configured.
 
 ## Data Model Summary
 
@@ -84,7 +84,9 @@ Cloudflare Worker serves the UI and JSON APIs. Cloudflare D1 stores accounts, bu
 ## API Summary
 
 - `GET /health`
-- `GET /mcp`
+- `GET /mcp` (human-readable MCP manifest/help page; hidden from main nav)
+- `GET /.well-known/mcp.json`
+- `GET /mcp/manifest.json`
 - `POST /mcp`
 - `GET /api/overview`
 - `GET /api/mission-control-data`
@@ -135,7 +137,7 @@ Cloudflare Worker serves the UI and JSON APIs. Cloudflare D1 stores accounts, bu
 - Keep generic entries for non-ledger memory, but make ledger tables the source of truth for cash.
 - Use director control tables for weekly review, OKRs, BMC, and 300T alignment rather than burying management detail in prose.
 - Prefer React/Vite static assets plus browser cache/lazy D1 refresh for UI routes, so page refresh is fast and D1 reads happen through compact JSON data endpoints instead of blocking first paint. Read-only API routes must not run seed/upsert work before returning data.
-- Store editable BMC state in structured `business_model_blocks` for MCP/ChatGPT querying; the heavy tldraw whiteboard experiment is removed from the user flow. BMC and project UI writes create audit/status rows so external MCP changes can be surfaced by lightweight polling. Production build automation runs through `.github/workflows/deploy.yml` on every push to `main`; Cloudflare migration/deploy steps run in that workflow once the required repository secrets are configured.
+- Store editable BMC state in structured `business_model_blocks` for MCP/ChatGPT querying; the heavy tldraw whiteboard experiment is removed from the user flow. BMC and project UI writes create audit/status rows so external MCP changes can be surfaced by lightweight polling. Build automation runs through `.github/workflows/deploy.yml` on every push/PR. Branches upload preview Worker versions with `wrangler versions upload --preview-alias`, while `main` runs remote D1 migrations and production `wrangler deploy` once the required repository secrets are configured.
 
 ## Known Constraints
 

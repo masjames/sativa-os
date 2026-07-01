@@ -18,6 +18,7 @@ npm run build
 npm test
 npm run db:migrate:remote
 npm run deploy
+npm run deploy:preview -- --preview-alias my-branch
 ```
 
 ## Ledger tool surface
@@ -27,7 +28,7 @@ npm run deploy
 - `GET /projects` — Projects Horizon grouped by parent business with Buubo sync status.
 - `GET /business-model` — static nine-block business canvas with horizontal business tabs and global lock/unlock.
 - `GET /add-transaction` — separate manual cash in/out form.
-- `GET /mcp` — human-readable MCP/tool manifest.
+- `GET /mcp` — docs-style AI/MCP manifest/help page with endpoint instructions and JSON-RPC examples, hidden from main nav.
 - `POST /mcp` — no-auth Streamable HTTP JSON-RPC MCP endpoint for ChatGPT custom app testing (`initialize`, `tools/list`, `tools/call`).
 - `GET /api/mission-control-data` — compact Mission Control snapshot for lazy UI hydration/cache refresh.
 - `GET /api/director-data` — compact Director snapshot for lazy UI hydration/cache refresh.
@@ -71,7 +72,7 @@ Add PIN/session auth before putting more sensitive private operating data into D
 
 - Read-only API routes no longer await seed/upsert work before returning JSON. This avoids slow refreshes such as 15s mission-control loads.
 - The React frontend removed the heavy tldraw user flow and uses a static nine-block BMC editor with browser cache and per-block D1 persistence.
-- Navigation is simplified: the Sativa OS title is the home link, `+transaction` is next to the title, and MCP Manifest is in the top menu.
+- Navigation is simplified: the Sativa OS title is the home link, `+transaction` is next to the title, and the MCP manifest is hidden from the main menu while remaining available at `/mcp`.
 
 ## ChatGPT Create an App values
 
@@ -99,3 +100,7 @@ node scripts/verify-mcp-manifest.mjs https://sativa-os.praditya-bagus.workers.de
 ```
 
 Expected result: `Total tool count: 47`, no missing expected tools, no missing/empty schemas for schema-bearing tools, all preferred names (`edit_transaction`, `soft_delete_transaction`, `create_transfer`, `create_split`, `read_audit_log`) present, all compatibility aliases (`update_transaction`, `delete_transaction`, `record_transfer`, `split_transaction`, `get_audit_log`) present, and final `PASS`.
+
+## Branch preview deploys
+
+The GitHub Actions workflow deploys non-main branches and PRs as Cloudflare Workers preview versions before a `main` merge. It computes a sanitized branch alias and runs `npm run deploy:preview -- --preview-alias <alias>`, which maps to `wrangler versions upload`. Production D1 migrations and `wrangler deploy` still run only on `main`. Cloudflare preview URLs are explicitly enabled in `wrangler.jsonc`.

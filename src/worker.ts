@@ -209,7 +209,8 @@ export default {
     try {
       if (url.pathname === '/health') return jsonResponse({ ok: true, service: 'sativa-os', auth: 'disabled-for-test', ledger: 'enabled', app: 'react-fast-bmc' });
       if (url.pathname === '/mcp' && request.method === 'POST') return mcpResponse(await handleMcpRequest(request, env));
-      if (url.pathname === '/mcp') return jsonResponse(mcpManifest(url.origin));
+      if (url.pathname === '/mcp') return htmlResponse(renderMcpManifestPage(url.origin));
+      if (url.pathname === '/.well-known/mcp.json' || url.pathname === '/mcp/manifest.json') return manifestResponse(mcpManifest(url.origin));
 
       if (url.pathname === '/api/seed' && request.method === 'POST') { await ensureSeededOnce(env); return jsonResponse({ ok: true, seeded: true }); }
       if (url.pathname === '/api/mission-control-data') return jsonResponse(await missionControlData(env));
@@ -362,7 +363,24 @@ async function directorData(env: Env) {
 }
 
 async function businessModelData(env: Env) {
-  const [businesses, blocks, changes] = await Promise.all([businessesWithReports(env), businessModelWithBusiness(env), businessModelChanges(env)]);
+  const [businesses, storedBlocks, changes] = await Promise.all([businessesWithReports(env), businessModelWithBusiness(env), businessModelChanges(env)]);
+  const blocksById = new Map(storedBlocks.map((block) => [`${block.business_id}:${block.block_key}`, block]));
+  const blocks = businesses.flatMap((business) => BMC_BLOCKS.map(([blockKey, blockName]) => {
+    const stored = blocksById.get(`${business.id}:${blockKey}`);
+    const seeded = DEFAULT_BMC.find((block) => block.business_id === business.id && block.block_key === blockKey);
+    return stored || {
+      id: `bmc-${business.id}-${blockKey}`,
+      business_id: business.id,
+      business_name: business.name,
+      block_key: blockKey,
+      block_name: blockName,
+      elements: seeded ? JSON.parse(seeded.elements_json || '[]') : [],
+      elements_json: seeded?.elements_json || '[]',
+      status: seeded?.status || 'draft',
+      control_question: seeded?.control_question || `What must be true for ${blockName} to compound toward Sativa 300T?`,
+      updated_at: null,
+    };
+  }));
   return { loadedAt: new Date().toISOString(), source: 'Cloudflare D1', businesses, blocks, changes };
 }
 
@@ -655,15 +673,17 @@ async function updateProject(env: Env, projectId: string, payload: NewProject) {
   const allowedStatus = new Set(['todo', 'doing', 'review', 'backlog', 'done', 'active', 'ongoing', 'paused', 'stopped']);
   const status = typeof payload.status === 'string' && allowedStatus.has(payload.status) ? normalizeProjectStatus(payload.status) : current.status;
   const name = typeof payload.name === 'string' && payload.name.trim() ? payload.name.trim() : current.name;
+  const businessId = typeof payload.business_id === 'string' && payload.business_id.trim() ? payload.business_id.trim() : current.business_id;
+  if (businessId !== current.business_id) await getBusinessById(env, businessId);
   const horizon = typeof payload.horizon === 'string' && payload.horizon.trim() ? payload.horizon.trim() : current.horizon;
   const priority = Number.isFinite(Number(payload.priority)) ? Number(payload.priority) : current.priority;
   const outcome = typeof payload.outcome === 'string' ? payload.outcome : current.outcome;
   const nextAction = typeof payload.next_action === 'string' ? payload.next_action : current.next_action;
   const updatedAt = new Date().toISOString();
-  await env.DB.prepare('UPDATE projects SET name = ?, status = ?, horizon = ?, priority = ?, outcome = ?, next_action = ?, updated_at = ? WHERE id = ?')
-    .bind(name, status, horizon, priority, outcome, nextAction, updatedAt, projectId).run();
+  await env.DB.prepare('UPDATE projects SET name = ?, business_id = ?, status = ?, horizon = ?, priority = ?, outcome = ?, next_action = ?, updated_at = ? WHERE id = ?')
+    .bind(name, businessId, status, horizon, priority, outcome, nextAction, updatedAt, projectId).run();
   const updated = await env.DB.prepare('SELECT * FROM projects WHERE id = ? LIMIT 1').bind(projectId).first<Project>();
-  await audit(env, 'project', projectId, 'update', current, updated, `project updated to ${status}`, 'sativa-ui', { business_id: current.business_id, section_url: `/#${encodeURIComponent(projectId)}` });
+  await audit(env, 'project', projectId, 'update', current, updated, `project updated to ${status}`, 'sativa-ui', { business_id: businessId, section_url: `/#${encodeURIComponent(projectId)}` });
   return updated;
 }
 
@@ -687,7 +707,7 @@ async function recordProjectAction(env: Env, projectId: string, payload: Record<
 }
 
 async function ongoingProjectCount(env: Env) {
-  const row = await env.DB.prepare("SELECT COUNT(*) AS count FROM projects WHERE status = 'ongoing'").first<{ count: number }>();
+  const row = await env.DB.prepare("SELECT COUNT(*) AS count FROM projects WHERE status = 'doing'").first<{ count: number }>();
   return Number(row?.count ?? 0);
 }
 
@@ -697,7 +717,7 @@ async function createProject(env: Env, payload: NewProject) {
     id: crypto.randomUUID(),
     business_id: requireText(payload.business_id, 'Missing business_id'),
     name: requireText(payload.name, 'Missing name'),
-    status: typeof payload.status === 'string' && payload.status ? payload.status : 'active',
+    status: typeof payload.status === 'string' && payload.status ? normalizeProjectStatus(payload.status) : 'backlog',
     horizon: typeof payload.horizon === 'string' && payload.horizon ? payload.horizon : 'now',
     priority: toInteger(payload.priority || 3),
     outcome: typeof payload.outcome === 'string' ? payload.outcome : '',
@@ -1269,6 +1289,10 @@ async function callMcpTool(name: string, args: Record<string, unknown>, env: Env
   }
 }
 
+function manifestResponse(payload: unknown) {
+  return new Response(JSON.stringify(payload, null, 2), { headers: { ...jsonHeaders, 'cache-control': 'no-store, must-revalidate', 'x-sativa-route': 'mcp-manifest' } });
+}
+
 function mcpResponse(payload: unknown) {
   if (payload === null) return new Response(null, { status: 202, headers: jsonHeaders });
   return jsonResponse(payload);
@@ -1379,9 +1403,56 @@ function pageShell(title: string, body: string) {
 <body><main>${body}</main></body></html>`;
 }
 
+
+function renderMcpManifestPage(origin: string) {
+  const manifest = mcpManifest(origin);
+  const toolRows = MCP_TOOL_DEFINITIONS.map((tool) => `<tr><td><code>${escapeHtml(tool.name)}</code></td><td>${escapeHtml(tool.description)}</td><td>${escapeHtml(tool.method)}</td><td><code>${escapeHtml(tool.path)}</code></td></tr>`).join('');
+  const readTools = ['get_money_situation', 'list_accounts', 'list_transactions', 'get_weekly_review', 'get_business_model_canvas', 'read_audit_log'];
+  const writeTools = ['add_transaction', 'edit_transaction', 'soft_delete_transaction', 'create_transfer', 'create_split', 'reconcile_account', 'update_business_model_canvas'];
+  const initializeExample = JSON.stringify({ jsonrpc: '2.0', id: 'init-1', method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'chatgpt-custom-app', version: 'test' } } }, null, 2);
+  const toolsListExample = JSON.stringify({ jsonrpc: '2.0', id: 'tools-1', method: 'tools/list', params: {} }, null, 2);
+  const toolCallExample = JSON.stringify({ jsonrpc: '2.0', id: 'money-1', method: 'tools/call', params: { name: 'get_money_situation', arguments: {} } }, null, 2);
+  const body = `
+    <article class="docs-page">
+      <header>
+        <div>
+          <p class="eyebrow">AI / MCP documentation</p>
+          <h1>Sativa OS MCP Manifest</h1>
+          <p>This page is documentation for AI clients. It is not the Sativa OS homepage. Human UI navigation is intentionally omitted so agents can read the endpoint contract directly.</p>
+        </div>
+        <div class="small"><strong>${MCP_TOOL_DEFINITIONS.length} tools</strong><br>${escapeHtml(manifest.transport)}<br>${escapeHtml(manifest.auth)}</div>
+      </header>
+
+      <section><h2>Canonical endpoints</h2><table><tbody>
+        <tr><th>JSON-RPC MCP server</th><td><code>POST ${escapeHtml(manifest.serverUrl)}</code></td></tr>
+        <tr><th>Human docs page</th><td><code>GET ${escapeHtml(manifest.serverUrl)}</code></td></tr>
+        <tr><th>Machine JSON manifest</th><td><a href="/mcp/manifest.json"><code>/mcp/manifest.json</code></a> · <a href="/.well-known/mcp.json"><code>/.well-known/mcp.json</code></a></td></tr>
+        <tr><th>Authentication</th><td>No authentication for the current test slice. Add OAuth/PIN before real private production use.</td></tr>
+      </tbody></table></section>
+
+      <section><h2>Instructions for AI agents</h2><ol>
+        <li>Use <code>POST /mcp</code> only for JSON-RPC. Do not scrape the Sativa OS app UI.</li>
+        <li>Start with read-only tools to understand current money, projects, review, and business model state.</li>
+        <li>Before any write, ask for missing account, business, category, amount, date, and audit reason.</li>
+        <li>For balance corrections, prefer <code>reconcile_account</code> so the ledger keeps an auditable adjustment.</li>
+        <li>For transaction fixes, prefer <code>edit_transaction</code> or <code>soft_delete_transaction</code>; avoid destructive deletes.</li>
+      </ol></section>
+
+      <section><h2>JSON-RPC examples</h2><h3>Initialize</h3><pre>${escapeHtml(initializeExample)}</pre><h3>List tools</h3><pre>${escapeHtml(toolsListExample)}</pre><h3>Call a tool</h3><pre>${escapeHtml(toolCallExample)}</pre></section>
+
+      <section><h2>Suggested starting tools</h2><div class="grid"><div><h3>Read first</h3><p>${readTools.map((tool) => `<code>${escapeHtml(tool)}</code>`).join(' · ')}</p></div><div><h3>Write with audit trail</h3><p>${writeTools.map((tool) => `<code>${escapeHtml(tool)}</code>`).join(' · ')}</p></div></div></section>
+
+      <section><h2>All tools</h2><table><thead><tr><th>Name</th><th>Description</th><th>Method</th><th>Path</th></tr></thead><tbody>${toolRows}</tbody></table></section>
+
+      <section><h2>Human app links</h2><p>Only use these when you want the visual Sativa OS app: <a href="/">Mission Control</a> · <a href="/director">Director</a> · <a href="/projects">Projects</a> · <a href="/business-model">Business Model Canvas</a> · <a href="/add-transaction">Add Transaction</a>.</p></section>
+    </article>
+  `;
+  return pageShell('Sativa OS MCP Manifest', body);
+}
+
 function renderMissionControlShell() {
   const body = `
-    <header><div><h1>SATIVA OS MISSION CONTROL</h1><p>Primary interface: ChatGPT/MCP. This page paints instantly, uses browser cache first, then refreshes from D1 in the background.</p><nav><a href="/">Mission Control</a><a href="/director">Director</a><a href="/business-model">Business Model Canvas</a><a href="/add-transaction">Add Transaction</a><a href="/mcp">MCP Manifest</a></nav></div><div class="small">Instant shell<br>Lazy D1 refresh</div></header>
+    <header><div><h1>SATIVA OS MISSION CONTROL</h1><p>Primary interface: ChatGPT/MCP. This page paints instantly, uses browser cache first, then refreshes from D1 in the background.</p><nav><a href="/">Mission Control</a><a href="/director">Director</a><a href="/business-model">Business Model Canvas</a><a href="/add-transaction">Add Transaction</a></nav></div><div class="small">Instant shell<br>Lazy D1 refresh</div></header>
     <div class="status" id="loadStatus">Status: app shell rendered instantly. Loading cached data...</div>
     <section id="money-flow"><h2>1. Money Flow</h2><div id="moneyContent" class="skeleton">Loading money flow from browser cache, then Cloudflare D1...</div></section>
     <section id="horizon"><h2>2. Horizon of Controls</h2><div id="horizonContent" class="skeleton">Loading director/MCP controls...</div></section>
@@ -1424,7 +1495,7 @@ function renderBusinessModelShell() {
 
 function renderAddTransactionShell() {
   const body = `
-    <header><div><h1>ADD TRANSACTION</h1><p>Simple page for manual cash in / cash out. The main interaction remains ChatGPT/MCP.</p><nav><a href="/">Mission Control</a><a href="/director">Director</a><a href="/business-model">Business Model Canvas</a><a href="/add-transaction">Add Transaction</a><a href="/mcp">MCP Manifest</a></nav></div><div class="small">Fast shell + lazy options</div></header>
+    <header><div><h1>ADD TRANSACTION</h1><p>Simple page for manual cash in / cash out. The main interaction remains ChatGPT/MCP.</p><nav><a href="/">Mission Control</a><a href="/director">Director</a><a href="/business-model">Business Model Canvas</a><a href="/add-transaction">Add Transaction</a></nav></div><div class="small">Fast shell + lazy options</div></header>
     <div class="status" id="status">Status: form shell rendered instantly. Loading account/business/category options from cache...</div>
     <section><form class="form" id="transactionForm"><input name="transaction_date" type="date" required><select name="account_id" id="accountSelect"><option>Loading accounts...</option></select><select name="business_id" id="businessSelect"><option>Loading businesses...</option></select><select name="category_id" id="categorySelect"><option>Loading categories...</option></select><select name="transaction_type"><option value="income">income</option><option value="expense">expense</option><option value="investment">investment</option><option value="asset">asset</option><option value="transfer">transfer</option><option value="opening_balance">opening_balance</option></select><input name="counterparty" placeholder="counterparty"><input name="cash_in" type="number" min="0" step="1" placeholder="cash in"><input name="cash_out" type="number" min="0" step="1" placeholder="cash out"><input name="tax_tag" placeholder="tax tag"><textarea name="description" class="full" placeholder="description" required></textarea><textarea name="reflection" class="full" placeholder="reflection / retrospective"></textarea><button class="full">Save transaction</button></form></section>
     <script>${clientRuntimeScript('transaction')}</script>`;

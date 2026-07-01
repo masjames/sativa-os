@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "npx -y node@22 ./node_modules/.bin/wrangler dev",
     "deploy": "npx -y node@22 ./node_modules/.bin/wrangler deploy",
+    "deploy:preview": "npx -y node@22 ./node_modules/.bin/wrangler versions upload",
     "db:migrate:local": "npx -y node@22 ./node_modules/.bin/wrangler d1 migrations apply sativa-os-db --local",
     "db:migrate:remote": "npx -y node@22 ./node_modules/.bin/wrangler d1 migrations apply sativa-os-db --remote",
     "typecheck": "tsc --noEmit",

@@ -32,7 +32,7 @@ Adit asks, “how much money do I really have and where did it flow?” Sativa O
 
 - Minimalist low-fidelity black-and-white Mission Control UI without decorative effects.
 - Mission Control, Director Control, Projects, Add Transaction, and Business Model Canvas are served by a React/Vite frontend with browser cache-first hydration from Cloudflare D1 JSON endpoints.
-- Mission Control is divided into Money Flow, Horizon of Controls, and All Detailed Data.
+- Mission Control is divided into Project Scope Kanban, Financial / Money Flow, Horizon of Controls, and All Detailed Data.
 - Visible database loading status shows Cloudflare D1 load time and counts for accounts, transactions, and businesses.
 - Accounts/pockets table: bank, GoPay, Sonny WARAS account, savings.
 - Cashflow ledger with cash in, cash out, and running balance.
@@ -48,7 +48,7 @@ Adit asks, “how much money do I really have and where did it flow?” Sativa O
 - BMC blocks remain available as MCP/queryable memory without a heavy whiteboard dependency.
 - Seeded AppWorkZ Upwork service strategy: AI-assisted 0-to-MVP development, existing app restructure for AI dev, and agentic dev partner service.
 - Zippp and Rileks deployment OKRs are tracked as proof-building steps for AppWorkZ.
-- Projects Horizon tracks active projects grouped under parent businesses, including Coreitera onboarding, AppWorkZ CV/Upwork setup, Rileks MVP, and Zippp deployment; the UI temporarily hides Buubo IDs and instead shows play/pause/stop action buttons that log project start, pause, and stop timestamps plus ongoing project counts.
+- Project scope appears first in Mission Control as a Trello-like draggable Kanban board limited to Todo, Doing, and Review, with editable Backlog and Done list views below it. Projects remain tied to parent businesses and project outcomes/next actions, and the Director view shows each project's current Kanban state.
 - Business metrics track shareholding, energy/time allocation, sustainability score, and Sativa 300T vision alignment.
 - Buubo sync architecture is represented with sync status and D1 schema; real two-way sync remains pending Buubo integration credentials/API. UI pages poll compact D1 endpoints and the status bar surfaces recently updated/added/changed records with links back to relevant sections.
 

@@ -49,3 +49,12 @@ th { background: #eee; }
 .actions { display: flex; gap: 6px; flex-wrap: wrap; }
 .actions button { padding: 4px 6px; }
 @media (max-width: 900px) { .mini-tiles { grid-template-columns: 1fr; } }
+.kanban-board { display: grid; grid-template-columns: repeat(3, minmax(220px, 1fr)); gap: 10px; margin-top: 10px; }
+.kanban-lane { border: 1px solid #000; min-height: 220px; padding: 8px; }
+.kanban-lane h3 { margin-top: 0; text-transform: uppercase; }
+.kanban-card { border: 1px solid #000; padding: 8px; margin-bottom: 8px; background: #fff; display: grid; gap: 6px; }
+.kanban-card span { font-size: 12px; }
+.kanban-card input, .kanban-card textarea, .kanban-card select, .project-list input, .project-list select { width: 100%; border: 1px solid #000; background: #fff; color: #000; font: inherit; padding: 6px; }
+.kanban-card textarea { min-height: 64px; resize: vertical; }
+.project-list { margin-top: 12px; }
+@media (max-width: 900px) { .kanban-board { grid-template-columns: 1fr; } }

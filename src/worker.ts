@@ -774,8 +774,13 @@ async function buuboSyncStatus(env: Env) {
 async function serveFrontend(request: Request, env: Env) {
   if ('ASSETS' in env && env.ASSETS) {
     const url = new URL(request.url);
-    const assetRequest = new Request(url.pathname.includes('.') ? request : new URL('/', request.url), request);
-    return env.ASSETS.fetch(assetRequest);
+    const isStaticAsset = url.pathname.includes('.');
+    const assetRequest = new Request(isStaticAsset ? request : new URL('/', request.url), request);
+    const response = await env.ASSETS.fetch(assetRequest);
+    if (isStaticAsset) return response;
+    const headers = new Headers(response.headers);
+    headers.set('cache-control', 'no-store, must-revalidate');
+    return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
   }
   const url = new URL(request.url);
   if (url.pathname === '/') return htmlResponse(renderMissionControlShell());

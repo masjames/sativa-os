@@ -18,11 +18,11 @@ Pipeline:
 3. Run `npm run typecheck`.
 4. Run `npm test`.
 5. Run `npm run build` to generate `dist` assets.
-6. Check that Cloudflare deployment secrets are configured.
-7. If secrets exist, apply remote D1 migrations with Wrangler.
-8. If secrets exist, deploy the Cloudflare Worker with Wrangler.
+6. Require Cloudflare deployment secrets to be configured.
+7. Apply remote D1 migrations with Wrangler.
+8. Deploy the Cloudflare Worker with Wrangler.
 
-If Cloudflare secrets are missing, the workflow keeps the build green and emits a GitHub Actions warning instead of failing before deployment. Add the required secrets to enable the deploy steps.
+If Cloudflare secrets are missing, the workflow now fails before migration/deploy so a merged PR cannot look successfully deployed when Cloudflare was skipped. Add the required secrets to enable the deploy steps.
 
 Required GitHub repository secrets:
 
@@ -30,3 +30,7 @@ Required GitHub repository secrets:
 - `CLOUDFLARE_ACCOUNT_ID`
 
 Do not commit Cloudflare API tokens or account secrets to the repository.
+
+## Cache visibility note
+
+The Worker marks the SPA HTML entry response as `Cache-Control: no-store, must-revalidate` while leaving hashed static assets cacheable. This forces browsers and Cloudflare edges to re-check `index.html` after deploy so users receive the latest React asset URLs instead of an old app shell.

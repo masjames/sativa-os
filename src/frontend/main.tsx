@@ -10,6 +10,7 @@ type OptionRow = { id: string; name: string };
 
 type Change = { id: string; entity_type: string; entity_id: string; action: string; reason: string; created_at: string; label: string; sectionUrl: string; metadata?: Record<string, unknown> };
 type MissionData = { source: string; loadedAt: string; summary: Record<string, any>; accounts: any[]; cashflow: { rows: any[] }; assets: any[]; businesses: Business[]; projects: Project[]; tax: Record<string, any>; mcp: string[] };
+type ProjectPatch = Pick<Partial<Project>, 'name' | 'business_id' | 'status'>;
 type DirectorData = { visionGoals: any[]; weeklyReviews: any[]; okrs: any[]; businesses: Business[]; projects: Project[]; mcp: string[] };
 
 const nav = [
@@ -76,7 +77,7 @@ function MissionControl() {
   const { data, status, setData, setStatus } = useCachedJson<MissionData>('sativa:mission:react:v2', '/api/mission-control-data');
   if (!data) return <Status text={status} />;
   const s = data.summary;
-  async function updateProject(project: Project, patch: Partial<Project>) {
+  async function updateProject(project: Project, patch: ProjectPatch) {
     setStatus(`updating ${project.name}...`);
     const response = await fetch(`/api/projects/${encodeURIComponent(project.id)}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(patch) });
     if (!response.ok) { setStatus(`project update failed: ${await response.text()}`); return; }
@@ -86,7 +87,27 @@ function MissionControl() {
     setData(fresh);
     setStatus(`updated ${project.name}`);
   }
-  return <><Status text={status} /><ProjectControlBoard projects={data.projects || []} onUpdate={updateProject} /><MiniBmcTiles businesses={data.businesses} /><section><h2>2. Financial / Money Flow</h2><div className="metrics"><Metric label="Free cash" value={rupiah(s.freeCash)} /><Metric label="Restricted assets" value={rupiah(s.restrictedAssets)} /><Metric label="Savings" value={rupiah(s.savings)} /><Metric label="Total tracked" value={rupiah(s.totalTrackedAssets)} /></div></section><section><h2>3. Horizon of Controls</h2><div className="thirds"><p>Critical control: keep WARAS separate from spendable cash.</p><p>Next cash action: create, collect, sell, deliver, or recover cash.</p><p>MCP Manifest is available in the top menu.</p></div></section><section><h2>4. All Detailed Data</h2><h3>Accounts</h3><Table headers={['Account','Type','Spendable','Balance']} rows={data.accounts.map((a) => [a.name, a.account_type, a.is_spendable ? 'yes' : 'no', rupiah(a.balance)])} /><h3>Cashflow</h3><Table headers={['Date','Account','Business','In','Out','Balance','Notes']} rows={data.cashflow.rows.map((r) => [r.transaction_date, r.account_name, r.business_name, rupiah(r.cash_in), rupiah(r.cash_out), rupiah(r.running_balance), r.description])} /></section></>;
+  return <><Status text={status} /><ProjectControlBoard projects={data.projects || []} businesses={data.businesses || []} onUpdate={updateProject} /><MiniBmcTiles businesses={data.businesses} /><section><h2>2. Financial / Money Flow</h2><div className="metrics"><Metric label="Free cash" value={rupiah(s.freeCash)} /><Metric label="Restricted assets" value={rupiah(s.restrictedAssets)} /><Metric label="Savings" value={rupiah(s.savings)} /><Metric label="Total tracked" value={rupiah(s.totalTrackedAssets)} /></div></section><section><h2>3. Horizon of Controls</h2><div className="thirds"><p>Critical control: keep WARAS separate from spendable cash.</p><p>Next cash action: create, collect, sell, deliver, or recover cash.</p><p>MCP Manifest is available in the top menu.</p></div></section><section><h2>4. All Detailed Data</h2><h3>Accounts</h3><AccountBalanceAudit accounts={data.accounts} onChanged={async () => { const fresh = await getJson<MissionData>('/api/mission-control-data'); localStorage.setItem('sativa:mission:react:v2', JSON.stringify(fresh)); setData(fresh); }} /><h3>Cashflow</h3><Table headers={['Date','Account','Business','In','Out','Balance','Notes']} rows={data.cashflow.rows.map((r) => [r.transaction_date, r.account_name, r.business_name, rupiah(r.cash_in), rupiah(r.cash_out), rupiah(r.running_balance), r.description])} /></section></>;
+}
+
+
+function AccountBalanceAudit({ accounts, onChanged }: { accounts: any[]; onChanged: () => Promise<void> }) {
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [status, setStatus] = useState('Adjust balance first if real pocket balance differs; Sativa will create a required reconciliation entry with category.');
+  async function reconcile(account: any) {
+    const raw = drafts[account.id];
+    if (raw === undefined || raw === '') { setStatus(`enter actual balance for ${account.name}`); return; }
+    const actual = Number(raw);
+    if (!Number.isFinite(actual)) { setStatus('actual balance must be a number'); return; }
+    setStatus(`auditing ${account.name} balance...`);
+    const response = await fetch('/mcp', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: `reconcile-${account.id}`, method: 'tools/call', params: { name: 'reconcile_account', arguments: { account_id: account.id, actual_balance: actual, reason: 'manual pocket balance audit before spending categorization' } } }) });
+    const body = await response.json().catch(() => ({})) as { error?: { message?: string } };
+    if (!response.ok || body.error) { setStatus(`balance audit failed: ${body.error?.message || response.statusText}`); return; }
+    setDrafts({ ...drafts, [account.id]: '' });
+    await onChanged();
+    setStatus(`balance adjusted for ${account.name}; now add/recategorize spending entries at least by category.`);
+  }
+  return <div><p className="hint">Pocket balances are editable for quick audit. Each adjustment is saved as a reconciliation transaction, so later spending entries still need at least a category like coffee, dine out, or online shop.</p><Table headers={['Account','Type','Spendable','Current balance','Actual balance audit','Action']} rows={accounts.map((a) => [a.name, a.account_type, a.is_spendable ? 'yes' : 'no', rupiah(a.balance), <input key={`balance-${a.id}`} type="number" placeholder={String(a.balance)} value={drafts[a.id] || ''} onChange={(event) => setDrafts({ ...drafts, [a.id]: event.target.value })} />, <button key={`save-${a.id}`} onClick={() => reconcile(a)}>adjust balance</button>])} /><p className="hint">{status}</p></div>;
 }
 
 function Director() {
@@ -110,7 +131,7 @@ function Projects() {
     setData(fresh);
     setStatus(`${action} logged for ${project.name}`);
   }
-  const ongoing = data.projects.filter((p) => p.status === 'ongoing').length;
+  const ongoing = data.projects.filter((p) => laneFor(p.status) === 'doing').length;
   return <><Status text={`${status}; ongoing projects: ${ongoing}`} /><section><h2>Projects Horizon</h2><p>Every project is tied to one parent business. Buubo sync: {sync.data?.status || sync.status}</p>{Object.entries(groups).map(([business, projects]) => <div className="project-group" key={business}><h3>{business}</h3><Table headers={['Project','Status','Horizon','Priority','Outcome','Next Action','Actions','Last log']} rows={projects.map((p) => [p.name, p.status, p.horizon, String(p.priority), p.outcome, p.next_action, <ActionButtons key={p.id} project={p} onAction={act} />, p.last_action_at ? `${p.last_action} ${new Date(p.last_action_at).toLocaleString()}` : 'not logged'])} /></div>)}</section></>;
 }
 
@@ -150,34 +171,41 @@ const statusAliases: Record<string, string> = { active: 'todo', ongoing: 'doing'
 function laneFor(status: string) { return statusAliases[status] || status; }
 function statusLabel(status: string) { return laneFor(status).replace('-', ' '); }
 
-function ProjectControlBoard({ projects, onUpdate }: { projects: Project[]; onUpdate: (project: Project, patch: Partial<Project>) => void }) {
+function ProjectControlBoard({ projects, businesses, onUpdate }: { projects: Project[]; businesses: Business[]; onUpdate: (project: Project, patch: ProjectPatch) => void }) {
   const [editing, setEditing] = useState<string | null>(null);
-  const [draft, setDraft] = useState<Partial<Project>>({});
+  const [draft, setDraft] = useState<ProjectPatch>({});
+  const [newBacklog, setNewBacklog] = useState<ProjectPatch>({ name: '', business_id: businesses[0]?.id || '', status: 'backlog' });
   const lanes = projectLanes.map(([key, label]) => [key, label, projects.filter((p) => laneFor(p.status) === key)] as const);
   const backlog = projects.filter((p) => laneFor(p.status) === 'backlog');
   const done = projects.filter((p) => laneFor(p.status) === 'done');
-  function start(project: Project) { setEditing(project.id); setDraft({ name: project.name, outcome: project.outcome, next_action: project.next_action, status: laneFor(project.status) }); }
+  function start(project: Project) { setEditing(project.id); setDraft({ name: project.name, business_id: project.business_id, status: laneFor(project.status) }); }
+  function editFields(project: Project) {
+    return <><input aria-label="task name" value={draft.name || ''} onChange={(event) => setDraft({ ...draft, name: event.target.value })} /><select aria-label="associated project" value={draft.business_id || project.business_id} onChange={(event) => setDraft({ ...draft, business_id: event.target.value })}>{businesses.map((business) => <option key={business.id} value={business.id}>{business.name}</option>)}</select><select aria-label="status" value={draft.status || laneFor(project.status)} onChange={(event) => setDraft({ ...draft, status: event.target.value })}><option value="todo">todo</option><option value="doing">doing</option><option value="review">review</option><option value="backlog">backlog</option><option value="done">done</option></select><div className="actions"><button onClick={() => { onUpdate(project, draft); setEditing(null); }}>save</button><button onClick={() => setEditing(null)}>cancel</button></div></>;
+  }
   function card(project: Project) {
     const isEditing = editing === project.id;
     return <article className="kanban-card" draggable={!isEditing} onDragStart={(event) => event.dataTransfer.setData('text/plain', project.id)}>
-      {isEditing ? <><input value={draft.name || ''} onChange={(event) => setDraft({ ...draft, name: event.target.value })} /><textarea value={draft.outcome || ''} onChange={(event) => setDraft({ ...draft, outcome: event.target.value })} /><textarea value={draft.next_action || ''} onChange={(event) => setDraft({ ...draft, next_action: event.target.value })} /><select value={draft.status || laneFor(project.status)} onChange={(event) => setDraft({ ...draft, status: event.target.value })}><option value="todo">todo</option><option value="doing">doing</option><option value="review">review</option><option value="backlog">backlog</option><option value="done">done</option></select><div className="actions"><button onClick={() => { onUpdate(project, draft); setEditing(null); }}>save</button><button onClick={() => setEditing(null)}>cancel</button></div></> : <><strong>{project.name}</strong><span>{project.business_name} · {project.horizon} · P{project.priority}</span><p>{project.outcome}</p><p><b>Next:</b> {project.next_action}</p><button onClick={() => start(project)}>edit</button></>}
+      {isEditing ? editFields(project) : <><strong>{project.name}</strong><span>{project.business_name} · {statusLabel(project.status)}</span><button onClick={() => start(project)}>edit</button></>}
     </article>;
   }
-  return <section><h2>1. Project Scope Kanban</h2><p>Drag project cards between Todo, Doing, and Review. Backlog and Done stay below as editable list views.</p><div className="kanban-board">{lanes.map(([key, label, items]) => <div className="kanban-lane" key={key} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { const project = projects.find((p) => p.id === event.dataTransfer.getData('text/plain')); if (project) onUpdate(project, { status: key }); }}><h3>{label}</h3>{items.map(card)}</div>)}</div><EditableProjectList title="Backlog" projects={backlog} onUpdate={onUpdate} /><EditableProjectList title="Done" projects={done} onUpdate={onUpdate} /></section>;
+  async function addBacklog(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const payload = { name: newBacklog.name, business_id: newBacklog.business_id || businesses[0]?.id, status: 'backlog' };
+    const response = await fetch('/api/projects', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload) });
+    if (response.ok) window.location.reload();
+  }
+  return <section><h2>1. Project Scope Kanban</h2><p>Each card only edits three fields: task name, associated project/business, and status.</p><div className="kanban-board">{lanes.map(([key, label, items]) => <div className="kanban-lane" key={key} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { const project = projects.find((p) => p.id === event.dataTransfer.getData('text/plain')); if (project) onUpdate(project, { status: key }); }}><h3>{label}</h3>{items.map(card)}</div>)}</div><div className="project-lists"><EditableProjectList title="Backlog" projects={backlog} businesses={businesses} editing={editing} draft={draft} setDraft={setDraft} setEditing={setEditing} onUpdate={onUpdate} /><EditableProjectList title="Done" projects={done} businesses={businesses} editing={editing} draft={draft} setDraft={setDraft} setEditing={setEditing} onUpdate={onUpdate} /></div><form className="add-backlog" onSubmit={addBacklog}><h3>Add card to backlog</h3><input required placeholder="task name" value={newBacklog.name || ''} onChange={(event) => setNewBacklog({ ...newBacklog, name: event.target.value })} /><select value={newBacklog.business_id || businesses[0]?.id || ''} onChange={(event) => setNewBacklog({ ...newBacklog, business_id: event.target.value })}>{businesses.map((business) => <option key={business.id} value={business.id}>{business.name}</option>)}</select><button>add backlog card</button></form></section>;
 }
 
-function EditableProjectList({ title, projects, onUpdate }: { title: string; projects: Project[]; onUpdate: (project: Project, patch: Partial<Project>) => void }) {
-  const [editing, setEditing] = useState<string | null>(null);
-  const [draft, setDraft] = useState<Partial<Project>>({});
-  return <div className="project-list"><h3>{title}</h3><Table headers={['Project scope','Business','Status','Next action','Edit']} rows={projects.map((p) => {
+function EditableProjectList({ title, projects, businesses, editing, draft, setDraft, setEditing, onUpdate }: { title: string; projects: Project[]; businesses: Business[]; editing: string | null; draft: ProjectPatch; setDraft: (draft: ProjectPatch) => void; setEditing: (id: string | null) => void; onUpdate: (project: Project, patch: ProjectPatch) => void }) {
+  return <div className="project-list"><h3>{title}</h3>{projects.map((p) => {
     const isEditing = editing === p.id;
-    return [isEditing ? <input key="name" value={draft.name || ''} onChange={(event) => setDraft({ ...draft, name: event.target.value })} /> : p.name, p.business_name, isEditing ? <select key="status" value={draft.status || laneFor(p.status)} onChange={(event) => setDraft({ ...draft, status: event.target.value })}><option value="todo">todo</option><option value="doing">doing</option><option value="review">review</option><option value="backlog">backlog</option><option value="done">done</option></select> : statusLabel(p.status), isEditing ? <input key="next" value={draft.next_action || ''} onChange={(event) => setDraft({ ...draft, next_action: event.target.value })} /> : p.next_action, isEditing ? <div className="actions" key="actions"><button onClick={() => { onUpdate(p, draft); setEditing(null); }}>save</button><button onClick={() => setEditing(null)}>cancel</button></div> : <button key="edit" onClick={() => { setDraft({ name: p.name, next_action: p.next_action, status: laneFor(p.status) }); setEditing(p.id); }}>edit</button>];
-  })} /></div>;
+    return <article className="kanban-card" key={p.id}>{isEditing ? <><input value={draft.name || ''} onChange={(event) => setDraft({ ...draft, name: event.target.value })} /><select value={draft.business_id || p.business_id} onChange={(event) => setDraft({ ...draft, business_id: event.target.value })}>{businesses.map((business) => <option key={business.id} value={business.id}>{business.name}</option>)}</select><select value={draft.status || laneFor(p.status)} onChange={(event) => setDraft({ ...draft, status: event.target.value })}><option value="todo">todo</option><option value="doing">doing</option><option value="review">review</option><option value="backlog">backlog</option><option value="done">done</option></select><div className="actions"><button onClick={() => { onUpdate(p, draft); setEditing(null); }}>save</button><button onClick={() => setEditing(null)}>cancel</button></div></> : <><strong>{p.name}</strong><span>{p.business_name} · {statusLabel(p.status)}</span><button onClick={() => { setDraft({ name: p.name, business_id: p.business_id, status: laneFor(p.status) }); setEditing(p.id); }}>edit</button></>}</article>;
+  })}</div>;
 }
 
 function ProjectStateSummary({ projects }: { projects: Project[] }) {
-  const rows = projects.map((p) => [p.business_name, p.name, statusLabel(p.status), p.outcome, p.next_action]);
-  return <Table headers={['Business','Project','Kanban state','Scope / outcome','Next action']} rows={rows} />;
+  return <Table headers={['Business','Task','Kanban state']} rows={projects.map((p) => [p.business_name, p.name, statusLabel(p.status)])} />;
 }
 
 function ActionButtons({ project, onAction }: { project: Project; onAction: (project: Project, action: string) => void }) {
@@ -217,7 +245,7 @@ function AddTransaction() {
       window.clearTimeout(timeout);
     }
   }
-  return <><Status text={status} /><section><h2>+transaction</h2><form className="simple-form" onSubmit={submit}><input name="transaction_date" type="date" defaultValue={new Date().toISOString().slice(0, 10)} required /><select name="account_id">{(mission.data?.accounts || []).map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}</select><select name="business_id">{(mission.data?.businesses || []).map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}</select><select name="category_id">{(categories.data?.categories || []).map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}</select><select name="transaction_type"><option value="income">income</option><option value="expense">expense</option><option value="investment">investment</option><option value="asset">asset</option><option value="transfer">transfer</option></select><input name="cash_in" type="number" placeholder="cash in" /><input name="cash_out" type="number" placeholder="cash out" /><input name="description" placeholder="description" required /><button>save</button></form></section></>;
+  return <><Status text={status} /><section><h2>+transaction</h2><form className="simple-form" onSubmit={submit}><input name="transaction_date" type="date" defaultValue={new Date().toISOString().slice(0, 10)} required /><select name="account_id">{(mission.data?.accounts || []).map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}</select><select name="business_id">{(mission.data?.businesses || []).map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}</select><select name="category_id">{(categories.data?.categories || []).map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}</select><select name="transaction_type"><option value="income">income</option><option value="expense">expense</option><option value="investment">investment</option><option value="asset">asset</option><option value="transfer">transfer</option></select><input name="cash_in" type="number" placeholder="cash in" /><input name="cash_out" type="number" placeholder="cash out" /><input name="description" placeholder="description (what spending or balance adjustment is this?)" required /><button>save transaction</button></form></section></>;
 }
 
 function Status({ text }: { text: string }) { return <div className="status">Status: {text}</div>; }

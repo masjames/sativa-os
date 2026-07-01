@@ -209,7 +209,8 @@ export default {
     try {
       if (url.pathname === '/health') return jsonResponse({ ok: true, service: 'sativa-os', auth: 'disabled-for-test', ledger: 'enabled', app: 'react-fast-bmc' });
       if (url.pathname === '/mcp' && request.method === 'POST') return mcpResponse(await handleMcpRequest(request, env));
-      if (url.pathname === '/mcp') return jsonResponse(mcpManifest(url.origin));
+      if (url.pathname === '/mcp') return manifestResponse(mcpManifest(url.origin));
+      if (url.pathname === '/.well-known/mcp.json' || url.pathname === '/mcp/manifest.json') return manifestResponse(mcpManifest(url.origin));
 
       if (url.pathname === '/api/seed' && request.method === 'POST') { await ensureSeededOnce(env); return jsonResponse({ ok: true, seeded: true }); }
       if (url.pathname === '/api/mission-control-data') return jsonResponse(await missionControlData(env));
@@ -362,7 +363,24 @@ async function directorData(env: Env) {
 }
 
 async function businessModelData(env: Env) {
-  const [businesses, blocks, changes] = await Promise.all([businessesWithReports(env), businessModelWithBusiness(env), businessModelChanges(env)]);
+  const [businesses, storedBlocks, changes] = await Promise.all([businessesWithReports(env), businessModelWithBusiness(env), businessModelChanges(env)]);
+  const blocksById = new Map(storedBlocks.map((block) => [`${block.business_id}:${block.block_key}`, block]));
+  const blocks = businesses.flatMap((business) => BMC_BLOCKS.map(([blockKey, blockName]) => {
+    const stored = blocksById.get(`${business.id}:${blockKey}`);
+    const seeded = DEFAULT_BMC.find((block) => block.business_id === business.id && block.block_key === blockKey);
+    return stored || {
+      id: `bmc-${business.id}-${blockKey}`,
+      business_id: business.id,
+      business_name: business.name,
+      block_key: blockKey,
+      block_name: blockName,
+      elements: seeded ? JSON.parse(seeded.elements_json || '[]') : [],
+      elements_json: seeded?.elements_json || '[]',
+      status: seeded?.status || 'draft',
+      control_question: seeded?.control_question || `What must be true for ${blockName} to compound toward Sativa 300T?`,
+      updated_at: null,
+    };
+  }));
   return { loadedAt: new Date().toISOString(), source: 'Cloudflare D1', businesses, blocks, changes };
 }
 
@@ -655,15 +673,17 @@ async function updateProject(env: Env, projectId: string, payload: NewProject) {
   const allowedStatus = new Set(['todo', 'doing', 'review', 'backlog', 'done', 'active', 'ongoing', 'paused', 'stopped']);
   const status = typeof payload.status === 'string' && allowedStatus.has(payload.status) ? normalizeProjectStatus(payload.status) : current.status;
   const name = typeof payload.name === 'string' && payload.name.trim() ? payload.name.trim() : current.name;
+  const businessId = typeof payload.business_id === 'string' && payload.business_id.trim() ? payload.business_id.trim() : current.business_id;
+  if (businessId !== current.business_id) await getBusinessById(env, businessId);
   const horizon = typeof payload.horizon === 'string' && payload.horizon.trim() ? payload.horizon.trim() : current.horizon;
   const priority = Number.isFinite(Number(payload.priority)) ? Number(payload.priority) : current.priority;
   const outcome = typeof payload.outcome === 'string' ? payload.outcome : current.outcome;
   const nextAction = typeof payload.next_action === 'string' ? payload.next_action : current.next_action;
   const updatedAt = new Date().toISOString();
-  await env.DB.prepare('UPDATE projects SET name = ?, status = ?, horizon = ?, priority = ?, outcome = ?, next_action = ?, updated_at = ? WHERE id = ?')
-    .bind(name, status, horizon, priority, outcome, nextAction, updatedAt, projectId).run();
+  await env.DB.prepare('UPDATE projects SET name = ?, business_id = ?, status = ?, horizon = ?, priority = ?, outcome = ?, next_action = ?, updated_at = ? WHERE id = ?')
+    .bind(name, businessId, status, horizon, priority, outcome, nextAction, updatedAt, projectId).run();
   const updated = await env.DB.prepare('SELECT * FROM projects WHERE id = ? LIMIT 1').bind(projectId).first<Project>();
-  await audit(env, 'project', projectId, 'update', current, updated, `project updated to ${status}`, 'sativa-ui', { business_id: current.business_id, section_url: `/#${encodeURIComponent(projectId)}` });
+  await audit(env, 'project', projectId, 'update', current, updated, `project updated to ${status}`, 'sativa-ui', { business_id: businessId, section_url: `/#${encodeURIComponent(projectId)}` });
   return updated;
 }
 
@@ -687,7 +707,7 @@ async function recordProjectAction(env: Env, projectId: string, payload: Record<
 }
 
 async function ongoingProjectCount(env: Env) {
-  const row = await env.DB.prepare("SELECT COUNT(*) AS count FROM projects WHERE status = 'ongoing'").first<{ count: number }>();
+  const row = await env.DB.prepare("SELECT COUNT(*) AS count FROM projects WHERE status = 'doing'").first<{ count: number }>();
   return Number(row?.count ?? 0);
 }
 
@@ -697,7 +717,7 @@ async function createProject(env: Env, payload: NewProject) {
     id: crypto.randomUUID(),
     business_id: requireText(payload.business_id, 'Missing business_id'),
     name: requireText(payload.name, 'Missing name'),
-    status: typeof payload.status === 'string' && payload.status ? payload.status : 'active',
+    status: typeof payload.status === 'string' && payload.status ? normalizeProjectStatus(payload.status) : 'backlog',
     horizon: typeof payload.horizon === 'string' && payload.horizon ? payload.horizon : 'now',
     priority: toInteger(payload.priority || 3),
     outcome: typeof payload.outcome === 'string' ? payload.outcome : '',
@@ -1267,6 +1287,10 @@ async function callMcpTool(name: string, args: Record<string, unknown>, env: Env
     case 'update_business_model_canvas': await ensureSeededOnce(env); return { block: await upsertBusinessModelBlock(env, args as NewBusinessModelBlock) };
     default: throw new Error(`Unknown MCP tool: ${name}`);
   }
+}
+
+function manifestResponse(payload: unknown) {
+  return new Response(JSON.stringify(payload, null, 2), { headers: { ...jsonHeaders, 'cache-control': 'no-store, must-revalidate', 'x-sativa-route': 'mcp-manifest' } });
 }
 
 function mcpResponse(payload: unknown) {

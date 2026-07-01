@@ -58,3 +58,9 @@ th { background: #eee; }
 .kanban-card textarea { min-height: 64px; resize: vertical; }
 .project-list { margin-top: 12px; }
 @media (max-width: 900px) { .kanban-board { grid-template-columns: 1fr; } }
+.project-lists { display: grid; grid-template-columns: repeat(2, minmax(240px, 1fr)); gap: 10px; margin-top: 12px; }
+.add-backlog { border: 1px solid #000; margin-top: 12px; padding: 10px; display: grid; grid-template-columns: 2fr 1fr auto; gap: 8px; align-items: end; }
+.add-backlog h3 { grid-column: 1 / -1; margin-top: 0; }
+.add-backlog input, .add-backlog select, .project-list select, .project-list input, table input { border: 1px solid #000; background: #fff; color: #000; font: inherit; padding: 6px; width: 100%; }
+.hint { margin: 8px 0; font-size: 12px; }
+@media (max-width: 900px) { .project-lists, .add-backlog { grid-template-columns: 1fr; } }

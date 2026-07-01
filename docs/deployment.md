@@ -18,6 +18,7 @@ npm run build
 npm test
 npm run db:migrate:remote
 npm run deploy
+npm run deploy:preview -- --preview-alias my-branch
 ```
 
 ## Ledger tool surface
@@ -99,3 +100,7 @@ node scripts/verify-mcp-manifest.mjs https://sativa-os.praditya-bagus.workers.de
 ```
 
 Expected result: `Total tool count: 47`, no missing expected tools, no missing/empty schemas for schema-bearing tools, all preferred names (`edit_transaction`, `soft_delete_transaction`, `create_transfer`, `create_split`, `read_audit_log`) present, all compatibility aliases (`update_transaction`, `delete_transaction`, `record_transfer`, `split_transaction`, `get_audit_log`) present, and final `PASS`.
+
+## Branch preview deploys
+
+The GitHub Actions workflow deploys non-main branches and PRs as Cloudflare Workers preview versions before a `main` merge. It computes a sanitized branch alias and runs `npm run deploy:preview -- --preview-alias <alias>`, which maps to `wrangler versions upload`. Production D1 migrations and `wrangler deploy` still run only on `main`. Cloudflare preview URLs are explicitly enabled in `wrangler.jsonc`.
